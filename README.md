@@ -46,9 +46,15 @@ il backend riconosce chi sei e applica il ruolo giusto.
 
 ### 3. Collega Client ID e Apps Script
 
-1. Torna nell'editor di Apps Script, seleziona la funzione `setClientId`, e prima di eseguirla scrivi nel campo argomenti (o modifica temporaneamente la riga `function setClientId(clientId)` chiamandola in fondo al file con `setClientId('IL_TUO_CLIENT_ID.apps.googleusercontent.com');`) — poi **Esegui**.
-2. **Deploy → Nuovo deployment**: tipo *App web*. Esegui come **Me**, chi ha accesso **Chiunque**. Premi **Esegui il deployment** e autorizza se richiesto.
+1. Torna nell'editor di Apps Script, apri `Code.gs` e vicino all'inizio trova la riga:
+   ```js
+   var CLIENT_ID = 'INSERISCI_QUI_IL_TUO_CLIENT_ID.apps.googleusercontent.com';
+   ```
+   Sostituisci il valore con il Client ID copiato al passo 2, tra apici, e salva (**Ctrl+S**).
+2. **Esegui il deployment → Nuovo deployment**: tipo *App web*. Esegui come **Me**, chi ha accesso **Chiunque**. Premi **Esegui il deployment** e autorizza se richiesto (se compare "Google non ha verificato questa app", clicca **Avanzate → Vai a … (non sicuro) → Consenti**: è normale per uno script personale non pubblicato).
 3. Copia l'**URL dell'app web** generato (finisce in `/exec`).
+
+Se in seguito modifichi `Code.gs`, le modifiche non si vedono sull'URL già pubblicato finché non crei una **nuova versione** del deployment (Esegui il deployment → Gestisci deployment → modifica ✏️ → Versione: Nuova versione → Esegui il deployment).
 
 ### 4. Configura `index.html`
 

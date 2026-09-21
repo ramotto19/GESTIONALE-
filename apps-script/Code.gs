@@ -15,6 +15,11 @@
 
 var COLS = ['clienti', 'commesse', 'dipendenti', 'squadre', 'assegnazioni', 'tipiLavoro', 'categorie', 'docAzienda', 'assicurazioni', 'mezzi', 'documenti', 'verbali', 'scadenze', 'riservato', 'accessi', 'impostazioni', 'commesseElenco', 'registri'];
 
+/* Incolla qui il Client ID OAuth creato su Google Cloud Console
+   (Credenziali → ID client OAuth → tipo Applicazione web).
+   Deve essere lo STESSO valore messo in CONFIG.CLIENT_ID dentro index.html. */
+var CLIENT_ID = 'INSERISCI_QUI_IL_TUO_CLIENT_ID.apps.googleusercontent.com';
+
 /* ---------- setup iniziale (da eseguire una sola volta dall'editor di Apps Script) ---------- */
 function setup() {
   var props = PropertiesService.getScriptProperties();
@@ -28,11 +33,11 @@ function setup() {
     props.setProperty('FOLDER_ID', folder.getId());
     Logger.log('Creata cartella Drive: ' + folder.getUrl());
   }
-  Logger.log('Ora esegui setClientId(\'IL_TUO_CLIENT_ID.apps.googleusercontent.com\') e poi pubblica il Web App.');
-}
-function setClientId(clientId) {
-  PropertiesService.getScriptProperties().setProperty('CLIENT_ID', String(clientId || '').trim());
-  Logger.log('CLIENT_ID salvato.');
+  if (CLIENT_ID.indexOf('INSERISCI_QUI') === 0) {
+    Logger.log('ATTENZIONE: sostituisci il valore di CLIENT_ID in cima al file con il tuo Client ID OAuth, poi salva.');
+  } else {
+    Logger.log('CLIENT_ID configurato. Ora pubblica il Web App (Esegui il deployment → Nuovo deployment).');
+  }
 }
 
 /* ---------- entry point del Web App ---------- */
@@ -69,12 +74,11 @@ function handle(body) {
 /* ---------- identità ---------- */
 function verifyToken(idToken) {
   if (!idToken) throw new Error('Token mancante: accedi di nuovo.');
-  var clientId = PropertiesService.getScriptProperties().getProperty('CLIENT_ID');
-  if (!clientId) throw new Error('Il backend non è configurato: esegui setClientId() dall\'editor di Apps Script.');
+  if (!CLIENT_ID || CLIENT_ID.indexOf('INSERISCI_QUI') === 0) throw new Error('Il backend non è configurato: imposta CLIENT_ID in cima a Code.gs.');
   var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), { muteHttpExceptions: true });
   if (res.getResponseCode() !== 200) throw new Error('Sessione scaduta: accedi di nuovo.');
   var info = JSON.parse(res.getContentText());
-  if (info.aud !== clientId) throw new Error('Token non valido per questa applicazione.');
+  if (info.aud !== CLIENT_ID) throw new Error('Token non valido per questa applicazione.');
   if (info.email_verified !== 'true' && info.email_verified !== true) throw new Error('Email Google non verificata.');
   return { email: String(info.email).toLowerCase(), name: info.name || info.email };
 }
