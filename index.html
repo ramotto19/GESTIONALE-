@@ -1614,20 +1614,24 @@ async function pollOnce() {
    setInterval a orario fisso: se il backend è lento e una listAll impiega più di POLL_MS,
    un timer fisso avrebbe accumulato richieste una sopra l'altra, intasando il backend. */
 let pollRunning = false;
+let skipFirstPoll = false;
 function ensurePoll() {
   if (pollTimer) return;
   pollTimer = true;
   (async function loop() {
     while (pollTimer) {
-      pollRunning = true;
-      await pollOnce();
-      pollRunning = false;
+      if (skipFirstPoll) { skipFirstPoll = false; }
+      else {
+        pollRunning = true;
+        await pollOnce();
+        pollRunning = false;
+      }
       if (!pollTimer) break;
       await new Promise((res) => setTimeout(res, POLL_MS));
     }
   })();
 }
-function stopPoll() { pollTimer = null; pollRunning = false; Object.keys(collListeners).forEach((k) => delete collListeners[k]); pollCache = null; }
+function stopPoll() { pollTimer = null; pollRunning = false; skipFirstPoll = false; Object.keys(collListeners).forEach((k) => delete collListeners[k]); pollCache = null; }
 
 db = {
   collection: (col) => ({
@@ -1922,12 +1926,19 @@ routeHooks.mieore = () => { if (!S.mese) S.mese = meseOggi(); if (S.myOre.mese !
 async function boot() {
   render();
   if (!ID_TOKEN) { showLogin(); return; }
+  /* la verifica dell'account e il primo caricamento dati partono insieme, invece che uno
+     dopo l'altro: finché non sappiamo se l'utente è amministratore non sappiamo quali
+     collezioni servono, ma il server lo capisce comunque dal token, quindi non serve
+     aspettare la risposta di whoami prima di chiedere anche i dati. */
+  const prefetch = api('listAll').catch(() => null);
   let w;
   try { w = await whoami(); } catch (e) { ID_TOKEN = null; clearSavedToken(); showLogin(e.message || 'Accesso non riuscito.'); return; }
   if (w.unauthorized) { S.unauthorized = true; S.pendingEmail = w.email; render(); return; }
   S.admin = w.role === 'admin'; S.me = w.name || ''; S.uid = w.email;
   S.mese = meseOggi();
   setTimeout(() => { S.late = true; queueRender(); }, 6000);
+  const pref = await prefetch;
+  if (pref && pref.ok) { pollCache = pref.cols || {}; skipFirstPoll = true; }
   if (S.admin) COLS.forEach(subscribe); else { S.route = 'mieore'; subscribeUser(); }
   if (S.uid) watchMio(S.mese);
   setInterval(() => { if (S.admin && !FORM && !document.hidden) { if (S.route === 'ore') loadAllOre(S.mese || meseOggi(), true); else if (S.route === 'mieore') ensureView(); } }, 60000);
