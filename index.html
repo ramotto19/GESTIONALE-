@@ -443,7 +443,7 @@ function bloccati() {
 }
 /* ---------- struttura ---------- */
 const A = {}, C = {}, I = {};
-const NAV = [['dashboard', 'Dashboard'], ['commesse', 'Commesse'], ['iter', 'Iter commesse'], ['planning', 'Planning'], ['scadenzario', 'Scadenzario'], ['clienti', 'Clienti'], ['personale', 'Personale'], ['azienda', 'Azienda'], ['documentale', 'Documentale']];
+const NAV = [['dashboard', 'Dashboard'], ['commesse', 'Commesse'], ['iter', 'Iter commesse'], ['planning', 'Planning'], ['scadenzario', 'Calendario'], ['clienti', 'Clienti'], ['personale', 'Personale'], ['azienda', 'Azienda'], ['documentale', 'Documentale']];
 const navItems = () => (S.admin ? NAV.concat(regs().map((r) => ['reg', r.nome, r.id]), [['ore', 'Ore del personale'], ['mieore', 'Registro ore'], ['editor', 'Personalizza']]) : [['mieore', 'Le mie ore']]);
 const neededCols = () => (S.admin ? COLS : ['accessi', 'commesseElenco']);
 const navOn = (r, id) => (r === 'reg' ? S.route === 'reg' && S.id === id : ({ commessa: 'commesse', dipendente: 'personale', mezzo: 'azienda' }[S.route] || S.route) === r);
@@ -743,7 +743,7 @@ function vScadenzario() {
   const lista = ev.filter((e) => diff(e.data, t) >= -30 && diff(e.data, t) <= 60);
   const listaHtml = lista.length ? lista.map((e) => '<div class="blk"><div style="flex:1;min-width:0"><button class="lnk" data-a="goRef" data-r="' + esc(e.ref ? e.ref.r : 'scadenzario') + '" data-id="' + esc(e.ref && e.ref.id || '') + '" data-tab="' + esc(e.ref && e.ref.tab || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div>' + bd(lab(TIPI_SCAD, e.tipo), tone(TIPI_SCAD, e.tipo)) + '</div><div style="text-align:right">' + scadBadge(e.data) + '<div class="small muted">' + esc(fmtD(e.data)) + '</div></div></div>').join('') : '<div class="empty">Nessuna scadenza in questo periodo.</div>';
   const filtri = '<div class="fbar"><select data-c="ftipo" aria-label="Tipo di scadenza"><option value="">Tutti i tipi</option>' + TIPI_SCAD.map((x) => '<option value="' + x[0] + '"' + (S.ftipo === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>').join('') + '</select></div>';
-  return pageHead('Scadenzario', 'Formazione, DURC, assicurazioni, mezzi, sicurezza di cantiere, incassi e appuntamenti in un solo calendario.', '<button class="btn p" data-a="scadNew" data-tipo="APPUNTAMENTO">+ Appuntamento</button><button class="btn" data-a="scadNew">+ Scadenza</button>') + filtri +
+  return pageHead('Calendario', 'Formazione, DURC, assicurazioni, mezzi, sicurezza di cantiere, incassi, scadenze e appuntamenti in un solo calendario.', '<button class="btn p" data-a="scadNew" data-tipo="APPUNTAMENTO">+ Appuntamento</button><button class="btn" data-a="scadNew">+ Scadenza</button>') + filtri +
     '<div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)"><div class="card"><div class="ch"><div class="row"><button class="btn sm" data-a="calNav" data-n="-1" aria-label="Mese precedente">‹</button><h2 style="min-width:170px;text-align:center">' + MESI[S.calM] + ' ' + S.calY + '</h2><button class="btn sm" data-a="calNav" data-n="1" aria-label="Mese successivo">›</button></div><button class="btn sm" data-a="calToday">Oggi</button></div>' + cal + '</div>' + card('Da 30 giorni fa a 60 giorni', listaHtml) + '</div>';
 }
 C.ftipo = (d, v) => { S.ftipo = v; queueRender(); };
