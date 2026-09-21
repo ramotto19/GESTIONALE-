@@ -1697,6 +1697,15 @@ function getDriveToken(interactive) {
     catch (e) { resolve(null); }
   });
 }
+/* Se c'è già un token salvato (valido) lo riusa all'istante, senza nessuna chiamata di rete.
+   Altrimenti richiede subito l'autorizzazione con popup (senza passare prima da un tentativo
+   "silenzioso"): un tentativo silenzioso fallito, prima di quello con popup, fa perdere al
+   browser il collegamento con il click dell'utente e il popup successivo viene bloccato. */
+async function acquireDriveToken() {
+  const cached = driveTokenMem || loadSavedDriveToken();
+  if (cached) return cached;
+  return getDriveToken(true);
+}
 async function driveFetch(token, url, init) {
   const res = await fetch(url, Object.assign({}, init, { headers: Object.assign({ Authorization: 'Bearer ' + token }, (init && init.headers) || {}) }));
   if (!res.ok) throw new Error('drive ' + res.status);
@@ -1753,8 +1762,7 @@ function loadPickerApi() {
    quello specifico file, anche se non è stato creato dall'app. */
 async function openDrivePicker() {
   if (!CONFIG.API_KEY) { toast('Selettore Drive non configurato: manca API_KEY in index.html.', 'err'); return null; }
-  let token = await getDriveToken(false);
-  if (!token) token = await getDriveToken(true);
+  const token = await acquireDriveToken();
   if (!token) { toast('Autorizzazione a Google Drive non riuscita o annullata.', 'err'); return null; }
   try { await loadPickerApi(); } catch (e) { toast(e.message, 'err'); return null; }
   return new Promise((resolve) => {
@@ -1783,8 +1791,7 @@ A.drivePick = async (d) => {
   if (input) { input.value = picked.url; input.dataset.pickedName = picked.name; }
 };
 async function uploadDirectToDrive(file) {
-  let token = await getDriveToken(false);
-  if (!token) token = await getDriveToken(true);
+  const token = await acquireDriveToken();
   if (!token) return null;
   const folderId = await driveEnsureFolder(token);
   const uploaded = await driveUploadDirect(token, folderId, file);
