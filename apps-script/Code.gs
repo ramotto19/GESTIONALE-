@@ -18,7 +18,7 @@ var COLS = ['clienti', 'commesse', 'dipendenti', 'squadre', 'assegnazioni', 'tip
 /* Incolla qui il Client ID OAuth creato su Google Cloud Console
    (Credenziali → ID client OAuth → tipo Applicazione web).
    Deve essere lo STESSO valore messo in CONFIG.CLIENT_ID dentro index.html. */
-var CLIENT_ID = 'INSERISCI_QUI_IL_TUO_CLIENT_ID.apps.googleusercontent.com';
+var CLIENT_ID = '993000663967-5fv7cntdsjrcl0urmv8j2uscmju29ieu.apps.googleusercontent.com';
 
 /* ---------- setup iniziale (da eseguire una sola volta dall'editor di Apps Script) ---------- */
 function setup() {
