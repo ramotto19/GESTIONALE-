@@ -1684,8 +1684,10 @@ function showLogin(err) {
   el.innerHTML = '<div class="center card"><h1 style="font-size:28px">Gestionale Impianti</h1><p class="muted">Accedi con il tuo account Google per continuare.</p><div id="gsiBtn" style="display:flex;justify-content:center;margin-top:10px"></div>' + (err ? '<p class="err" style="margin-top:10px">' + esc(err) + '</p>' : '') + '</div>';
   if (!CONFIG.CLIENT_ID || !CONFIG.SCRIPT_URL) { $('.center.card').insertAdjacentHTML('beforeend', '<p class="alert amber" style="margin-top:10px">Configura CLIENT_ID e SCRIPT_URL in fondo a index.html: vedi il README.</p>'); return; }
   loadGis().then(() => {
-    google.accounts.id.initialize({ client_id: CONFIG.CLIENT_ID, callback: onGoogleCredential });
+    google.accounts.id.initialize({ client_id: CONFIG.CLIENT_ID, callback: onGoogleCredential, auto_select: true, cancel_on_tap_outside: false });
     google.accounts.id.renderButton($('#gsiBtn'), { theme: 'outline', size: 'large', text: 'signin_with', locale: 'it' });
+    /* se hai già effettuato l'accesso in precedenza su questo sito, prova ad entrare da solo senza bisogno di cliccare */
+    google.accounts.id.prompt();
   }).catch((e) => { showLogin(e.message); });
 }
 async function onGoogleCredential(resp) {
