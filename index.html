@@ -1556,15 +1556,24 @@ const POLL_MS = 15000;
 const collListeners = {};
 let pollCache = null, pollTimer = null;
 function snapFromDocs(docsMap) { return { docs: Object.keys(docsMap || {}).map((id) => ({ id: id, data: () => docsMap[id] })) }; }
+/* notifica subito i listener di una collezione usando lo stato attuale di pollCache,
+   usata sia dal polling periodico sia (per sentirsi reattivi) subito dopo ogni scrittura riuscita */
+function dispatchCollection(col) {
+  const reg = collListeners[col]; if (!reg) return;
+  const key = JSON.stringify((pollCache && pollCache[col]) || {});
+  if (reg.last !== key) { reg.last = key; reg.cbs.forEach((cb) => cb(snapFromDocs(pollCache[col]))); }
+}
+function applyLocalWrite(col, id, doc) {
+  if (!pollCache) pollCache = {};
+  if (!pollCache[col]) pollCache[col] = {};
+  if (doc == null) delete pollCache[col][id]; else pollCache[col][id] = doc;
+  dispatchCollection(col);
+}
 async function pollOnce() {
   try {
     const r = await api('listAll');
     pollCache = r.cols || {};
-    Object.keys(collListeners).forEach((col) => {
-      const key = JSON.stringify(pollCache[col] || {});
-      const reg = collListeners[col];
-      if (reg.last !== key) { reg.last = key; reg.cbs.forEach((cb) => cb(snapFromDocs(pollCache[col]))); }
-    });
+    Object.keys(collListeners).forEach(dispatchCollection);
   } catch (e) {
     Object.keys(collListeners).forEach((col) => {
       const reg = collListeners[col];
@@ -1592,9 +1601,9 @@ db = {
     const col = parts[0], id = parts.length >= 4 ? parts[1] + '::' + parts[3] : parts[1];
     return {
       get: async () => { const r = await api('get', { col: col, id: id }); return { exists: !!r.found, data: () => r.doc }; },
-      set: (obj) => api('set', { col: col, id: id, data: obj }),
-      update: (part) => api('update', { col: col, id: id, data: part }),
-      delete: () => api('delete', { col: col, id: id }),
+      set: async (obj) => { await api('set', { col: col, id: id, data: obj }); applyLocalWrite(col, id, obj); },
+      update: async (part) => { const r = await api('update', { col: col, id: id, data: part }); applyLocalWrite(col, id, r.doc); },
+      delete: async () => { await api('delete', { col: col, id: id }); applyLocalWrite(col, id, null); },
       onSnapshot: (cb, errCb) => {
         let stopped = false, last = null;
         (async function loop() {
