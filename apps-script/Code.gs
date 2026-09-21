@@ -33,6 +33,7 @@ function setup() {
     props.setProperty('FOLDER_ID', folder.getId());
     Logger.log('Creata cartella Drive: ' + folder.getUrl());
   }
+  COLS.forEach(function (col) { sheetFor(col); });
   if (CLIENT_ID.indexOf('INSERISCI_QUI') === 0) {
     Logger.log('ATTENZIONE: sostituisci il valore di CLIENT_ID in cima al file con il tuo Client ID OAuth, poi salva.');
   } else {
@@ -115,16 +116,11 @@ function canWrite(col, id, role, email) {
 
 /* ---------- operazioni dati ---------- */
 function apiListAll(caller, role) {
-  var cols = role === 'admin' ? COLS : ['accessi', 'commesseElenco'];
+  if (role === 'admin') return { ok: true, cols: readManyBatch(COLS) };
   var out = {};
-  cols.forEach(function (col) {
-    if (col === 'accessi' && role !== 'admin') {
-      var own = readDoc('accessi', caller.email);
-      out.accessi = own ? toIdMap(caller.email, own) : {};
-    } else {
-      out[col] = readAll(col);
-    }
-  });
+  var own = readDoc('accessi', caller.email);
+  out.accessi = own ? toIdMap(caller.email, own) : {};
+  out.commesseElenco = readAll('commesseElenco');
   return { ok: true, cols: out };
 }
 function toIdMap(id, doc) { var m = {}; m[id] = doc; return m; }
@@ -196,6 +192,34 @@ function readAll(col) {
     try { out[id] = JSON.parse(json); } catch (e) { /* riga corrotta: la saltiamo */ }
   }
   return out;
+}
+/* Legge più collezioni in UNA sola chiamata di rete (invece di una per collezione)
+   usando il servizio avanzato "Sheets API" (Servizi → + → Google Sheets API, nell'editor
+   di Apps Script). Se non è stato attivato, o per qualunque altro motivo la chiamata
+   fallisce, si torna automaticamente al metodo più lento ma sempre funzionante: l'app
+   non si rompe mai per questo, va solo più piano finché il servizio non è attivo. */
+function readManyBatch(cols) {
+  try {
+    if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) throw new Error('adv-service-off');
+    var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+    var ranges = cols.map(function (c) { return "'" + c + "'!A2:C"; });
+    var resp = Sheets.Spreadsheets.Values.batchGet(id, { ranges: ranges });
+    var out = {};
+    (resp.valueRanges || []).forEach(function (vr, i) {
+      var col = cols[i], map = {};
+      (vr.values || []).forEach(function (row) {
+        var rid = row[0], json = row[1];
+        if (!rid) return;
+        try { map[rid] = JSON.parse(json); } catch (e2) { /* riga corrotta: la saltiamo */ }
+      });
+      out[col] = map;
+    });
+    return out;
+  } catch (e) {
+    var out2 = {};
+    cols.forEach(function (c) { out2[c] = readAll(c); });
+    return out2;
+  }
 }
 function readDoc(col, id) {
   var sh = sheetFor(col), row = findRow(sh, id);
