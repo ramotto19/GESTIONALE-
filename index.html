@@ -237,7 +237,7 @@ function fld(f, v) {
   if (t === 'multi') { const sel = Array.isArray(v) ? v : []; return '<div class="' + cl + '"><label>' + esc(f.l) + (f.req ? ' *' : '') + '</label><div class="multi" data-k="' + f.k + '">' + f.opts.map((o) => '<label class="mo"><input type="checkbox" value="' + esc(o[0]) + '"' + (sel.includes(o[0]) ? ' checked' : '') + '> ' + esc(o[1]) + '</label>').join('') + '</div>' + ht + '</div>'; }
   if (t === 'file') {
     const cur = v && v.url ? '<div class="hint">Allegato attuale: <a class="lnk" href="' + esc(v.url) + '" target="_blank" rel="noopener">' + esc(v.name || 'file') + '</a>. Scegli un nuovo file per sostituirlo.</div>' : v && v.id ? '<div class="hint">Allegato attuale: ' + esc(v.name || 'file') + ' (link non disponibile).</div>' : '';
-    return '<div class="' + cl + '">' + lb + '<input type="file" id="' + id + '" name="' + f.k + '">' + cur + (!assets ? '<div class="hint">Il caricamento dei file non è disponibile in questa vista.</div>' : '') + '<label for="' + id + '_url" style="margin-top:8px">Oppure link a Google Drive</label><input type="text" inputmode="url" id="' + id + '_url" placeholder="https://drive.google.com/…" value="' + esc(v && v.url ? v.url : '') + '">' + ht + '</div>';
+    return '<div class="' + cl + '">' + lb + '<div class="row"><input type="file" id="' + id + '" name="' + f.k + '" style="flex:1"><button type="button" class="btn sm" data-a="drivePick" data-target="' + id + '_url">Sfoglia Drive</button></div>' + cur + (!assets ? '<div class="hint">Il caricamento dei file non è disponibile in questa vista.</div>' : '') + '<label for="' + id + '_url" style="margin-top:8px">Oppure link a Google Drive</label><input type="text" inputmode="url" id="' + id + '_url" placeholder="https://drive.google.com/…" value="' + esc(v && v.url ? v.url : '') + '">' + ht + '</div>';
   }
   return '<div class="' + cl + '">' + lb + '<input type="' + (t === 'date' ? 'date' : t === 'time' ? 'time' : 'text') + '" inputmode="' + (t === 'number' ? 'decimal' : 'text') + '" id="' + id + '" name="' + f.k + '" value="' + esc(v) + '"' + (f.ph ? ' placeholder="' + esc(f.ph) + '"' : '') + '>' + ht + '</div>';
 }
@@ -260,7 +260,7 @@ async function submitForm() {
     else if (t === 'file') {
       v = (cfg.values && cfg.values[f.k]) || null;
       const file = el && el.files && el.files[0], ue = document.getElementById('f_' + f.k + '_url'), lk = ue ? ue.value.trim() : '';
-      if (!file && lk) { const su = safeUrl(lk); if (!su) { err.textContent = 'Il link deve iniziare con https://'; if (ue) ue.focus(); return; } v = { url: su, name: 'Apri su Drive' }; }
+      if (!file && lk) { const su = safeUrl(lk); if (!su) { err.textContent = 'Il link deve iniziare con https://'; if (ue) ue.focus(); return; } v = { url: su, name: (ue && ue.dataset.pickedName) || 'Apri su Drive' }; }
       else if (!file && !lk && v && v.url) v = null;
       if (file) {
         try { btn.disabled = true; btn.textContent = 'Caricamento file in corso…'; v = await uploadFile(file); }
@@ -1532,7 +1532,8 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && FORM) cl
 /* ---------- autenticazione Google e backend Google Apps Script ---------- */
 const CONFIG = {
   CLIENT_ID: '993000663967-5fv7cntdsjrcl0urmv8j2uscmju29ieu.apps.googleusercontent.com',
-  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbw9PmX6P2osDgmaC1Vp-_iMRmawQYCtE9eabDA7P-I-o7i-sKQply2U7uaZFmA-AJyf/exec'
+  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbw9PmX6P2osDgmaC1Vp-_iMRmawQYCtE9eabDA7P-I-o7i-sKQply2U7uaZFmA-AJyf/exec',
+  API_KEY: ''
 };
 
 let ID_TOKEN = null, WHOAMI_CACHE = null;
@@ -1730,6 +1731,57 @@ async function driveSetSharing(token, fileId) {
     body: JSON.stringify({ role: 'reader', type: 'anyone' })
   });
 }
+
+/* ---------- selettore di file Google Drive (per collegare documenti già esistenti) ---------- */
+let pickerLoadPromise = null;
+function loadPickerApi() {
+  if (pickerLoadPromise) return pickerLoadPromise;
+  pickerLoadPromise = new Promise((resolve, reject) => {
+    if (window.gapi && window.gapi.load) { gapi.load('picker', { callback: () => resolve() }); return; }
+    const s = document.createElement('script');
+    s.src = 'https://apis.google.com/js/api.js'; s.async = true; s.defer = true;
+    s.onload = () => { gapi.load('picker', { callback: () => resolve() }); };
+    s.onerror = () => reject(new Error('Impossibile caricare il selettore di Google Drive.'));
+    document.head.appendChild(s);
+  });
+  return pickerLoadPromise;
+}
+/* Apre il selettore file di Google Drive e restituisce {url, name} del documento scelto
+   (non lo carica: si collega direttamente al file già esistente, dove si trova).
+   Usa lo stesso token Drive (scope drive.file) già autorizzato per i caricamenti diretti:
+   selezionare un file tramite il selettore concede automaticamente l'accesso a
+   quello specifico file, anche se non è stato creato dall'app. */
+async function openDrivePicker() {
+  if (!CONFIG.API_KEY) { toast('Selettore Drive non configurato: manca API_KEY in index.html.', 'err'); return null; }
+  let token = await getDriveToken(false);
+  if (!token) token = await getDriveToken(true);
+  if (!token) { toast('Autorizzazione a Google Drive non riuscita o annullata.', 'err'); return null; }
+  try { await loadPickerApi(); } catch (e) { toast(e.message, 'err'); return null; }
+  return new Promise((resolve) => {
+    const view = new google.picker.DocsView(google.picker.ViewId.DOCS).setIncludeFolders(true).setSelectFolderEnabled(false);
+    const picker = new google.picker.PickerBuilder()
+      .addView(view)
+      .setOAuthToken(token)
+      .setDeveloperKey(CONFIG.API_KEY)
+      .setTitle('Scegli un documento da Google Drive')
+      .setCallback((data) => {
+        if (data.action === google.picker.Action.PICKED && data.docs && data.docs[0]) {
+          const doc = data.docs[0];
+          resolve({ id: doc.id, name: doc.name, url: doc.url || ('https://drive.google.com/file/d/' + doc.id + '/view') });
+        } else if (data.action === google.picker.Action.CANCEL) {
+          resolve(null);
+        }
+      })
+      .build();
+    picker.setVisible(true);
+  });
+}
+A.drivePick = async (d) => {
+  const picked = await openDrivePicker();
+  if (!picked) return;
+  const input = document.getElementById(d.target);
+  if (input) { input.value = picked.url; input.dataset.pickedName = picked.name; }
+};
 async function uploadDirectToDrive(file) {
   let token = await getDriveToken(false);
   if (!token) token = await getDriveToken(true);
