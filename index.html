@@ -1679,8 +1679,16 @@ dl = {
   }
 };
 
+/* il token di accesso viene ricordato sul dispositivo (resta valido circa un'ora) così
+   riaprendo l'app (specie da installata, dove l'accesso automatico di Google non sempre
+   riesce a scattare da solo) non serve rifare il login ogni volta */
+const TOKEN_KEY = 'gestionale-impianti:id-token';
+function saveToken(t) { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) { /* storage non disponibile: pazienza */ } }
+function loadSavedToken() { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } }
+function clearSavedToken() { try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignora */ } }
+
 window.__logout = () => {
-  ID_TOKEN = null; WHOAMI_CACHE = null; stopPoll();
+  ID_TOKEN = null; WHOAMI_CACHE = null; stopPoll(); clearSavedToken();
   try { if (window.google && window.google.accounts && window.google.accounts.id) window.google.accounts.id.disableAutoSelect(); } catch (e) { /* ignora */ }
   S.route = 'dashboard'; S.id = null; S.tab = null; S.data = {}; S.loaded = {}; S.admin = false; S.me = ''; S.uid = null; S.unauthorized = false; S.pendingEmail = ''; S.offline = false; S.late = false;
   showLogin();
@@ -1701,7 +1709,14 @@ function showLogin(err) {
 async function onGoogleCredential(resp) {
   ID_TOKEN = resp.credential;
   const el = $('#app'); if (el) el.innerHTML = '<div class="empty">Accesso in corso…</div>';
-  try { await whoami(true); boot(); } catch (e) { ID_TOKEN = null; showLogin(e.message || 'Accesso non riuscito.'); }
+  try { await whoami(true); saveToken(ID_TOKEN); boot(); } catch (e) { ID_TOKEN = null; clearSavedToken(); showLogin(e.message || 'Accesso non riuscito.'); }
+}
+/* riprova ad entrare da solo con il token salvato sul dispositivo, prima di mostrare il login */
+async function tryResume() {
+  const saved = loadSavedToken();
+  if (!saved) { showLogin(); return; }
+  ID_TOKEN = saved;
+  try { await whoami(true); boot(); } catch (e) { ID_TOKEN = null; clearSavedToken(); showLogin(); }
 }
 
 /* ---------- avvio ---------- */
@@ -1726,7 +1741,7 @@ async function boot() {
   render();
   if (!ID_TOKEN) { showLogin(); return; }
   let w;
-  try { w = await whoami(); } catch (e) { ID_TOKEN = null; showLogin(e.message || 'Accesso non riuscito.'); return; }
+  try { w = await whoami(); } catch (e) { ID_TOKEN = null; clearSavedToken(); showLogin(e.message || 'Accesso non riuscito.'); return; }
   if (w.unauthorized) { S.unauthorized = true; S.pendingEmail = w.email; render(); return; }
   S.admin = w.role === 'admin'; S.me = w.name || ''; S.uid = w.email;
   S.mese = meseOggi();
@@ -1736,7 +1751,7 @@ async function boot() {
   setInterval(() => { if (S.admin && !FORM && !document.hidden) { if (S.route === 'ore') loadAllOre(S.mese || meseOggi(), true); else if (S.route === 'mieore') ensureView(); } }, 60000);
   queueRender();
 }
-if (typeof window !== 'undefined' && !window.__TEST__) showLogin();
+if (typeof window !== 'undefined' && !window.__TEST__) tryResume();
 if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('service-worker.js').catch(() => {}); });
 }
