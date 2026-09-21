@@ -333,7 +333,7 @@ const ESITI = [['CONFORME', 'Conforme', 'green'], ['CONFORME_CON_RILIEVI', 'Conf
 const TIPI_VERBALE = [['RIUNIONE_PERIODICA', 'Riunione periodica'], ['SOSTENIBILITA', 'Sostenibilità'], ['RAPPORTO_DIPENDENTE', 'Rapporto con dipendente (riservato)']];
 const STATI_AZIONE = [['APERTA', 'Aperta', 'grey'], ['IN_CORSO', 'In corso', 'amber'], ['CHIUSA', 'Chiusa', 'green']];
 const ACCESSI = [['TUTTI', 'Tutti', 'grey'], ['RESPONSABILI', 'Responsabili', 'grey'], ['AMMINISTRAZIONE', 'Amministrazione', 'grey'], ['RISERVATO', 'Riservato', 'dark']];
-const TIPI_SCAD = [['FORMAZIONE', 'Formazione', 'blue'], ['AZIENDA', 'Documenti azienda', 'purple'], ['ASSICURAZIONE', 'Assicurazioni', 'teal'], ['INCASSO', 'Incassi', 'green'], ['SICUREZZA', 'Sicurezza cantiere', 'amber'], ['MEZZO', 'Mezzi', 'gray'], ['ALTRO', 'Altro', 'gray']];
+const TIPI_SCAD = [['APPUNTAMENTO', 'Appuntamento', 'dark'], ['FORMAZIONE', 'Formazione', 'blue'], ['AZIENDA', 'Documenti azienda', 'purple'], ['ASSICURAZIONE', 'Assicurazioni', 'teal'], ['INCASSO', 'Incassi', 'green'], ['SICUREZZA', 'Sicurezza cantiere', 'amber'], ['MEZZO', 'Mezzi', 'gray'], ['ALTRO', 'Altro', 'gray']];
 
 const DEFAULT_ITER = [
   { codice: 'PREVENTIVO', nome: 'Preventivo', voci: ['Sopralluogo e rilievo', 'Computo e offerta economica', 'Invio al cliente'] },
@@ -426,7 +426,7 @@ function eventi() {
     (c.pagamenti || []).forEach((p) => { const res = (Number(p.importo) || 0) - incassatoP(p); if (res > 0.5) push(p.dataScadenza, 'INCASSO', 'Incasso ' + (p.descrizione || lab(TIPI_PAG, p.tipo)) + ' · ' + eur(res), c.codice + ' · ' + clienteNome(c.clienteId), { r: 'commessa', id: c.id, tab: 'economia' }); });
   });
   D('verbali').concat(D('riservato').filter((x) => x.kind === 'verbale')).forEach((v) => (v.azioni || []).forEach((a) => { if (a.stato !== 'CHIUSA') push(a.scadenza, 'ALTRO', a.descrizione, 'Azione da verbale · ' + (a.responsabile || ''), { r: 'documentale' }); }));
-  D('scadenze').forEach((x) => { if (x.stato !== 'CHIUSA') push(x.data, x.tipo || 'ALTRO', x.titolo, x.note || '', { r: 'scadenzario', id: x.id }); });
+  D('scadenze').forEach((x) => { if (x.stato !== 'CHIUSA') push(x.data, x.tipo || 'ALTRO', (x.ora ? x.ora + ' · ' : '') + x.titolo, x.note || '', { r: 'scadenzario', id: x.id }); });
   return ev.sort((a, b) => a.data.localeCompare(b.data));
 }
 function bloccati() {
@@ -743,14 +743,14 @@ function vScadenzario() {
   const lista = ev.filter((e) => diff(e.data, t) >= -30 && diff(e.data, t) <= 60);
   const listaHtml = lista.length ? lista.map((e) => '<div class="blk"><div style="flex:1;min-width:0"><button class="lnk" data-a="goRef" data-r="' + esc(e.ref ? e.ref.r : 'scadenzario') + '" data-id="' + esc(e.ref && e.ref.id || '') + '" data-tab="' + esc(e.ref && e.ref.tab || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div>' + bd(lab(TIPI_SCAD, e.tipo), tone(TIPI_SCAD, e.tipo)) + '</div><div style="text-align:right">' + scadBadge(e.data) + '<div class="small muted">' + esc(fmtD(e.data)) + '</div></div></div>').join('') : '<div class="empty">Nessuna scadenza in questo periodo.</div>';
   const filtri = '<div class="fbar"><select data-c="ftipo" aria-label="Tipo di scadenza"><option value="">Tutti i tipi</option>' + TIPI_SCAD.map((x) => '<option value="' + x[0] + '"' + (S.ftipo === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>').join('') + '</select></div>';
-  return pageHead('Scadenzario', 'Formazione, DURC, assicurazioni, mezzi, sicurezza di cantiere e incassi in un solo calendario.', '<button class="btn p" data-a="scadNew">+ Scadenza</button>') + filtri +
+  return pageHead('Scadenzario', 'Formazione, DURC, assicurazioni, mezzi, sicurezza di cantiere, incassi e appuntamenti in un solo calendario.', '<button class="btn p" data-a="scadNew" data-tipo="APPUNTAMENTO">+ Appuntamento</button><button class="btn" data-a="scadNew">+ Scadenza</button>') + filtri +
     '<div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)"><div class="card"><div class="ch"><div class="row"><button class="btn sm" data-a="calNav" data-n="-1" aria-label="Mese precedente">‹</button><h2 style="min-width:170px;text-align:center">' + MESI[S.calM] + ' ' + S.calY + '</h2><button class="btn sm" data-a="calNav" data-n="1" aria-label="Mese successivo">›</button></div><button class="btn sm" data-a="calToday">Oggi</button></div>' + cal + '</div>' + card('Da 30 giorni fa a 60 giorni', listaHtml) + '</div>';
 }
 C.ftipo = (d, v) => { S.ftipo = v; queueRender(); };
 A.calNav = (d) => { const x = new Date(S.calY, S.calM + (+d.n), 1); S.calY = x.getFullYear(); S.calM = x.getMonth(); queueRender(); };
 A.calToday = () => { const x = new Date(); S.calY = x.getFullYear(); S.calM = x.getMonth(); queueRender(); };
-const scadFields = () => [{ k: 'titolo', l: 'Titolo', req: true }, { k: 'data', l: 'Data', t: 'date', req: true, half: true }, { k: 'tipo', l: 'Tipo', t: 'select', half: true, opts: TIPI_SCAD.map((x) => [x[0], x[1]]) }, { k: 'stato', l: 'Stato', t: 'select', half: true, opts: [['APERTA', 'Aperta'], ['CHIUSA', 'Completata']] }, { k: 'note', l: 'Note', t: 'textarea' }];
-A.scadNew = () => openForm({ title: 'Nuova scadenza', fields: scadFields(), values: { tipo: 'ALTRO', stato: 'APERTA', data: today() }, onSave: (v) => put('scadenze', newId('scadenze'), v) });
+const scadFields = () => [{ k: 'titolo', l: 'Titolo', req: true }, { k: 'data', l: 'Data', t: 'date', req: true, half: true }, { k: 'ora', l: 'Ora (facoltativa)', t: 'time', half: true }, { k: 'tipo', l: 'Tipo', t: 'select', half: true, opts: TIPI_SCAD.map((x) => [x[0], x[1]]) }, { k: 'stato', l: 'Stato', t: 'select', half: true, opts: [['APERTA', 'Aperta'], ['CHIUSA', 'Completata']] }, { k: 'note', l: 'Note', t: 'textarea' }];
+A.scadNew = (d) => { const tipo = (d && d.tipo) || 'ALTRO'; openForm({ title: tipo === 'APPUNTAMENTO' ? 'Nuovo appuntamento' : 'Nuova scadenza', fields: scadFields(), values: { tipo: tipo, stato: 'APERTA', data: today() }, onSave: (v) => put('scadenze', newId('scadenze'), v) }); };
 function scadEdit(id) { const x = G('scadenze', id); if (!x) return; openForm({ title: 'Scadenza', fields: scadFields(), values: x, onSave: (v) => patch('scadenze', id, v), onDelete: () => remove('scadenze', id) }); }
 A.goRef = (d) => { if (d.r === 'scadenzario' && d.id) return scadEdit(d.id); go(d.r, d.id || null, d.tab || null); };
 
@@ -981,7 +981,18 @@ function oreTot(righe) {
   const so = sogliaMin();
   return { t, giorni: Object.keys(per).filter((d) => per[d] > 0).length, oltre: Object.values(per).reduce((a, m) => a + Math.max(0, m - so), 0) };
 }
-function eoloTot(righe) { const t = { M: 0, A: 0, G: 0, K: 0 }; righe.forEach((r) => { if (r.e && t[r.e] != null) t[r.e] += Math.max(1, Number(r.eq) || 1); }); t.tot = t.M + t.A + t.G + t.K; return t; }
+/* Ogni riga può avere più conteggi EOLO insieme (r.eo = {M,A,G,K}), per registrare ad
+   esempio più attivazioni e un guasto nella stessa giornata senza dover spezzare gli
+   orari in più righe. Le righe salvate col vecchio formato (un solo tipo r.e + r.eq)
+   restano leggibili come prima. */
+function eoloOfRow(r) {
+  if (r.eo && typeof r.eo === 'object') return { M: Number(r.eo.M) || 0, A: Number(r.eo.A) || 0, G: Number(r.eo.G) || 0, K: Number(r.eo.K) || 0 };
+  const out = { M: 0, A: 0, G: 0, K: 0 };
+  if (r.e && out[r.e] != null) out[r.e] = Math.max(1, Number(r.eq) || 1);
+  return out;
+}
+function eoloRowText(r) { const eo = eoloOfRow(r); return TIPI_EOLO.filter((x) => eo[x[0]] > 0).map((x) => x[1] + ' ' + eo[x[0]]).join(' · '); }
+function eoloTot(righe) { const t = { M: 0, A: 0, G: 0, K: 0 }; righe.forEach((r) => { const eo = eoloOfRow(r); t.M += eo.M; t.A += eo.A; t.G += eo.G; t.K += eo.K; }); t.tot = t.M + t.A + t.G + t.K; return t; }
 const eoloTxt = (t) => TIPI_EOLO.filter((x) => t[x[0]]).map((x) => x[1] + ' ' + t[x[0]]).join(' · ');
 const ordina = (righe) => righe.slice().sort((a, b) => (a.d + (a.i || '')).localeCompare(b.d + (b.i || '')));
 const stBase = (u, m, righe) => {
@@ -1050,7 +1061,7 @@ function giorniTable(righe, o) {
     }
     dl.forEach((r, i) => {
       const L = tipoR(r) === 'L', at = o.edit ? ' class="clk" data-a="oreEdit" data-u="' + esc(o.u) + '" data-m="' + o.m + '" data-id="' + esc(r.id) + '"' : '';
-      rows.push('<tr' + at + '><td class="day">' + (i ? '' : lbl) + '</td><td>' + (L ? esc(r.i) + ' – ' + esc(r.u) : stBadge(TIPI_ORE, tipoR(r))) + '</td><td>' + (L ? (Number(r.p) || 0) + ' min' : '<span class="muted">—</span>') + '</td><td><b>' + fmtMin(minRiga(r)) + '</b></td><td>' + (r.c ? '<div class="small muted">' + esc(r.c) + '</div>' : '') + (r.e ? stBadge(TIPI_EOLO, r.e) + ((Number(r.eq) || 1) > 1 ? ' <b>×' + (Number(r.eq) || 1) + '</b> ' : ' ') : '') + esc(r.a || '') + '</td></tr>');
+      rows.push('<tr' + at + '><td class="day">' + (i ? '' : lbl) + '</td><td>' + (L ? esc(r.i) + ' – ' + esc(r.u) : stBadge(TIPI_ORE, tipoR(r))) + '</td><td>' + (L ? (Number(r.p) || 0) + ' min' : '<span class="muted">—</span>') + '</td><td><b>' + fmtMin(minRiga(r)) + '</b></td><td>' + (r.c ? '<div class="small muted">' + esc(r.c) + '</div>' : '') + (eoloRowText(r) ? '<div class="small">' + esc(eoloRowText(r)) + '</div>' : '') + esc(r.a || '') + '</td></tr>');
     });
   });
   return '<div class="scroll"><table class="tbl"><thead><tr><th>Giorno</th><th>Orario</th><th>Pausa</th><th>Ore nette</th><th>Attività</th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
@@ -1121,8 +1132,10 @@ function rigaFields(u) {
     { k: 'o', l: 'Ore di assenza', t: 'number', half: true, hint: 'Solo per ferie, permessi e malattia' },
     { k: 'c', l: 'Commessa', t: 'select', opts: ass.concat(altre) },
     { k: 'cx', l: 'Altro cantiere o luogo (se non in elenco)' },
-    { k: 'eolo', l: 'Intervento EOLO', t: 'select', half: true, opts: TIPI_EOLO.map((x) => [x[0], x[1]]), hint: 'Solo per lavori EOLO' },
-    { k: 'eq', l: 'Quanti interventi', t: 'number', half: true, def: 1 },
+    { k: 'eoloM', l: 'Manutenzioni EOLO', t: 'number', half: true, def: 0, hint: 'Solo per lavori EOLO: quanti interventi di ciascun tipo in questa giornata' },
+    { k: 'eoloA', l: 'Attivazioni EOLO', t: 'number', half: true, def: 0 },
+    { k: 'eoloG', l: 'Guasti EOLO', t: 'number', half: true, def: 0 },
+    { k: 'eoloK', l: 'KO EOLO', t: 'number', half: true, def: 0 },
     { k: 'a', l: 'Descrizione dei lavori svolti', t: 'textarea', rows: 4 }
   ];
 }
@@ -1131,13 +1144,16 @@ function apriRiga(u, m, id, d) {
   if (id && !r) return;
   const elenco = D('commesseElenco').some((x) => x.label === (r && r.c)) || assegnateU(u).some((x) => x.c === (r && r.c));
   const unica = [...new Set(assegnateU(u).filter((x) => x.w === monday(d || today())).map((x) => x.c))];
+  const eo = r ? eoloOfRow(r) : { M: 0, A: 0, G: 0, K: 0 };
   openForm({
     title: r ? 'Modifica ore' : 'Registra ore', wide: true,
-    values: r ? { tipo: tipoR(r), d: r.d, i: r.i, u: r.u, p: r.p, o: r.o, c: elenco ? r.c : '', cx: elenco ? '' : r.c, eolo: r.e || '', eq: r.eq || 1, a: r.a } : { tipo: 'L', d: d || today(), p: 0, eq: 1, c: unica.length === 1 ? unica[0] : '' },
+    values: r ? { tipo: tipoR(r), d: r.d, i: r.i, u: r.u, p: r.p, o: r.o, c: elenco ? r.c : '', cx: elenco ? '' : r.c, eoloM: eo.M, eoloA: eo.A, eoloG: eo.G, eoloK: eo.K, a: r.a } : { tipo: 'L', d: d || today(), p: 0, eoloM: 0, eoloA: 0, eoloG: 0, eoloK: 0, c: unica.length === 1 ? unica[0] : '' },
     fields: rigaFields(u),
     onSave: async (v) => {
-      const nr = { id: r ? r.id : newId('ore'), t: v.tipo || 'L', d: v.d, i: v.i, u: v.u, p: Math.max(0, Math.round(num(v.p))), o: num(v.o), c: v.cx || v.c || '', a: v.a, e: v.eolo || '', eq: v.eolo ? Math.max(1, Math.round(num(v.eq) || 1)) : 0 };
-      if (nr.t !== 'L') { nr.i = ''; nr.u = ''; nr.p = 0; nr.e = ''; nr.eq = 0; } else nr.o = 0;
+      const eoObj = { M: Math.max(0, Math.round(num(v.eoloM) || 0)), A: Math.max(0, Math.round(num(v.eoloA) || 0)), G: Math.max(0, Math.round(num(v.eoloG) || 0)), K: Math.max(0, Math.round(num(v.eoloK) || 0)) };
+      const hasEolo = eoObj.M || eoObj.A || eoObj.G || eoObj.K;
+      const nr = { id: r ? r.id : newId('ore'), t: v.tipo || 'L', d: v.d, i: v.i, u: v.u, p: Math.max(0, Math.round(num(v.p))), o: num(v.o), c: v.cx || v.c || '', a: v.a, eo: hasEolo ? eoObj : null };
+      if (nr.t !== 'L') { nr.i = ''; nr.u = ''; nr.p = 0; nr.eo = null; } else nr.o = 0;
       if (nr.d.slice(0, 7) !== m) throw { vmsg: 'La data deve essere in ' + meseLabel(m) + '. Cambia mese con le frecce.' };
       const altre = righe.filter((x) => !r || x.id !== r.id), msg = validaRiga(nr, altre);
       if (msg) throw { vmsg: msg };
@@ -1245,8 +1261,8 @@ A.oreCsv = async (d) => {
       .concat(rs.map((r) => [r.nome, m, r.x.giorni, decOre(r.x.t.L), fmtMin(r.x.t.L), decOre(r.x.t.F), decOre(r.x.t.P), decOre(r.x.t.M), decOre(r.x.t.A), decOre(r.x.oltre), r.eo.M, r.eo.A, r.eo.G, r.eo.K, r.st.t]));
   } else {
     nome = 'ore-' + m + '-rapportini.csv';
-    rows = [['Persona', 'Data', 'Tipo', 'Ingresso', 'Uscita', 'Pausa (min)', 'Ore nette (decimali)', 'Ore nette (hh:mm)', 'Commessa o luogo', 'Attività', 'Intervento EOLO', 'N. interventi EOLO']];
-    rs.forEach((r) => ordina(r.righe).forEach((x) => rows.push([r.nome, fmtD(x.d), lab(TIPI_ORE, tipoR(x)), x.i || '', x.u || '', tipoR(x) === 'L' ? (Number(x.p) || 0) : '', decOre(minRiga(x)), fmtMin(minRiga(x)), x.c || '', x.a || '', x.e ? lab(TIPI_EOLO, x.e) : '', x.e ? Math.max(1, Number(x.eq) || 1) : ''])));
+    rows = [['Persona', 'Data', 'Tipo', 'Ingresso', 'Uscita', 'Pausa (min)', 'Ore nette (decimali)', 'Ore nette (hh:mm)', 'Commessa o luogo', 'Attività', 'EOLO manutenzioni', 'EOLO attivazioni', 'EOLO guasti', 'EOLO KO']];
+    rs.forEach((r) => ordina(r.righe).forEach((x) => { const eo = eoloOfRow(x); rows.push([r.nome, fmtD(x.d), lab(TIPI_ORE, tipoR(x)), x.i || '', x.u || '', tipoR(x) === 'L' ? (Number(x.p) || 0) : '', decOre(minRiga(x)), fmtMin(minRiga(x)), x.c || '', x.a || '', eo.M || '', eo.A || '', eo.G || '', eo.K || '']); }));
   }
   try { await dl.save({ filename: nome, data: toCsv(rows) }); } catch (e) { if (!e || e.code !== 'declined') toast('Esportazione non riuscita.', 'err'); }
 };
