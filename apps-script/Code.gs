@@ -165,14 +165,22 @@ function apiUpload(body, caller, role) {
 }
 
 /* ---------- storage: Google Sheet come database, una scheda per collezione ---------- */
+/* Il foglio e le singole schede vengono aperti una sola volta per esecuzione
+   (una chiamata al backend può leggere fino a 18 collezioni in "listAll":
+   riaprirle ogni volta era la causa principale della lentezza). */
+var _ssCache = null, _sheetCache = {};
 function ss() {
+  if (_ssCache) return _ssCache;
   var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
   if (!id) throw new Error('Il backend non è configurato: esegui setup() dall\'editor di Apps Script.');
-  return SpreadsheetApp.openById(id);
+  _ssCache = SpreadsheetApp.openById(id);
+  return _ssCache;
 }
 function sheetFor(col) {
+  if (_sheetCache[col]) return _sheetCache[col];
   var s = ss(), sh = s.getSheetByName(col);
   if (!sh) { sh = s.insertSheet(col); sh.appendRow(['id', 'json', 'aggiornato']); sh.setFrozenRows(1); }
+  _sheetCache[col] = sh;
   return sh;
 }
 function findRow(sh, id) {
