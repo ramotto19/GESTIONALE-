@@ -250,7 +250,8 @@ function openForm(cfg) {
 async function submitForm() {
   const cfg = FORM; if (!cfg) return;
   const out = {}, err = $('#ferr'); err.textContent = '';
-  const btn = $('#mform button[type=submit]');
+  const btn = $('#mform button[type=submit]'), btnLabel = (cfg.submit || 'Salva');
+  const resetBtn = () => { if (btn) { btn.disabled = false; btn.textContent = btnLabel; } };
   for (const f of cfg.fields) {
     const t = f.t || 'text', el = document.getElementById('f_' + f.k);
     let v;
@@ -261,12 +262,15 @@ async function submitForm() {
       const file = el && el.files && el.files[0], ue = document.getElementById('f_' + f.k + '_url'), lk = ue ? ue.value.trim() : '';
       if (!file && lk) { const su = safeUrl(lk); if (!su) { err.textContent = 'Il link deve iniziare con https://'; if (ue) ue.focus(); return; } v = { url: su, name: 'Apri su Drive' }; }
       else if (!file && !lk && v && v.url) v = null;
-      if (file) { try { btn.disabled = true; v = await uploadFile(file); } catch (e) { err.textContent = 'Caricamento del file non riuscito.'; btn.disabled = false; return; } }
+      if (file) {
+        try { btn.disabled = true; btn.textContent = 'Caricamento file in corso…'; v = await uploadFile(file); }
+        catch (e) { err.textContent = 'Caricamento del file non riuscito.'; resetBtn(); return; }
+      }
     } else { v = el ? el.value.trim() : ''; if (t === 'number') v = v === '' ? '' : num(v); }
     if (f.req && (v === '' || v == null || (Array.isArray(v) && !v.length))) { err.textContent = 'Compila il campo: ' + f.l; if (el && el.focus) el.focus(); return; }
     out[f.k] = v;
   }
-  try { btn.disabled = true; await cfg.onSave(out); closeModal(); } catch (e) { err.textContent = errMsg(e); const b = $('#mform button[type=submit]'); if (b) b.disabled = false; }
+  try { btn.disabled = true; btn.textContent = 'Salvataggio…'; await cfg.onSave(out); closeModal(); } catch (e) { err.textContent = errMsg(e); resetBtn(); }
 }
 
 /* modifica di un elemento dentro un array del documento (sicurezza, pagamenti, abilitazioni...) */
