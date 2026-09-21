@@ -1552,7 +1552,7 @@ async function whoami(force) {
 }
 
 /* un'unica chiamata "listAll" per ogni ciclo di polling, smistata ai listener per collezione registrati da subscribe() */
-const POLL_MS = 15000;
+const POLL_MS = 20000;
 const collListeners = {};
 let pollCache = null, pollTimer = null;
 function snapFromDocs(docsMap) { return { docs: Object.keys(docsMap || {}).map((id) => ({ id: id, data: () => docsMap[id] })) }; }
@@ -1581,8 +1581,24 @@ async function pollOnce() {
     });
   }
 }
-function ensurePoll() { if (pollTimer) return; pollOnce(); pollTimer = setInterval(pollOnce, POLL_MS); }
-function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } Object.keys(collListeners).forEach((k) => delete collListeners[k]); pollCache = null; }
+/* Ciclo che si riavvia da solo SOLO dopo che la chiamata precedente è finita, invece di un
+   setInterval a orario fisso: se il backend è lento e una listAll impiega più di POLL_MS,
+   un timer fisso avrebbe accumulato richieste una sopra l'altra, intasando il backend. */
+let pollRunning = false;
+function ensurePoll() {
+  if (pollTimer) return;
+  pollTimer = true;
+  (async function loop() {
+    while (pollTimer) {
+      pollRunning = true;
+      await pollOnce();
+      pollRunning = false;
+      if (!pollTimer) break;
+      await new Promise((res) => setTimeout(res, POLL_MS));
+    }
+  })();
+}
+function stopPoll() { pollTimer = null; pollRunning = false; Object.keys(collListeners).forEach((k) => delete collListeners[k]); pollCache = null; }
 
 db = {
   collection: (col) => ({
