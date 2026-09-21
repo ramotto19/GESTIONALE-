@@ -1650,8 +1650,100 @@ db = {
   }
 };
 
-assets = {
-  upload: (file) => new Promise((resolve, reject) => {
+/* ---------- caricamento diretto su Google Drive (più veloce del passaggio da Apps Script) ---------- */
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_TOKEN_KEY = 'gestionale-impianti:drive-token';
+const DRIVE_FOLDER_NAME = 'Gestionale Impianti - Allegati';
+let driveTokenClient = null, driveTokenMem = null;
+
+function loadSavedDriveToken() {
+  try {
+    const raw = localStorage.getItem(DRIVE_TOKEN_KEY); if (!raw) return null;
+    const t = JSON.parse(raw);
+    if (!t.accessToken || Date.now() >= t.expiresAt) return null;
+    return t.accessToken;
+  } catch (e) { return null; }
+}
+function saveDriveToken(accessToken) {
+  driveTokenMem = accessToken;
+  try { localStorage.setItem(DRIVE_TOKEN_KEY, JSON.stringify({ accessToken: accessToken, expiresAt: Date.now() + 50 * 60 * 1000 })); } catch (e) { /* ignora */ }
+}
+function clearSavedDriveToken() {
+  driveTokenMem = null;
+  try { localStorage.removeItem(DRIVE_TOKEN_KEY); } catch (e) { /* ignora */ }
+}
+/* interactive=false: prova a ottenere un token senza mostrare nulla all'utente (silenzioso,
+   usa il consenso già dato in precedenza). interactive=true: mostra la schermata di
+   autorizzazione di Google, solo se non c'è già un consenso valido riutilizzabile. */
+function getDriveToken(interactive) {
+  return new Promise((resolve) => {
+    const cached = driveTokenMem || loadSavedDriveToken();
+    if (cached && !interactive) { resolve(cached); return; }
+    if (!window.google || !google.accounts || !google.accounts.oauth2 || !CONFIG.CLIENT_ID) { resolve(null); return; }
+    if (!driveTokenClient) {
+      driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CONFIG.CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: () => {} // sovrascritto ad ogni richiesta, vedi sotto
+      });
+    }
+    driveTokenClient.callback = (resp) => {
+      if (resp && resp.access_token) { saveDriveToken(resp.access_token); resolve(resp.access_token); }
+      else resolve(null);
+    };
+    driveTokenClient.error_callback = () => resolve(null);
+    try { driveTokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' }); }
+    catch (e) { resolve(null); }
+  });
+}
+async function driveFetch(token, url, init) {
+  const res = await fetch(url, Object.assign({}, init, { headers: Object.assign({ Authorization: 'Bearer ' + token }, (init && init.headers) || {}) }));
+  if (!res.ok) throw new Error('drive ' + res.status);
+  return res;
+}
+async function driveEnsureFolder(token) {
+  const q = "name='" + DRIVE_FOLDER_NAME.replace(/'/g, "\\'") + "' and mimeType='application/vnd.google-apps.folder' and trashed=false";
+  const res = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id)&spaces=drive');
+  const data = await res.json();
+  if (data.files && data.files[0]) return data.files[0].id;
+  const created = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?fields=id', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
+  });
+  const c = await created.json();
+  return c.id;
+}
+async function driveUploadDirect(token, folderId, file) {
+  const boundary = 'gi-' + uid();
+  const metadata = { name: file.name, parents: [folderId] };
+  const head = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) + '\r\n--' + boundary + '\r\nContent-Type: ' + (file.type || 'application/octet-stream') + '\r\n\r\n';
+  const tail = '\r\n--' + boundary + '--';
+  const body = new Blob([head, file, tail]);
+  const res = await driveFetch(token, 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name', {
+    method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body: body
+  });
+  return res.json();
+}
+async function driveSetSharing(token, fileId) {
+  await driveFetch(token, 'https://www.googleapis.com/drive/v3/files/' + fileId + '/permissions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'reader', type: 'anyone' })
+  });
+}
+async function uploadDirectToDrive(file) {
+  let token = await getDriveToken(false);
+  if (!token) token = await getDriveToken(true);
+  if (!token) return null;
+  const folderId = await driveEnsureFolder(token);
+  const uploaded = await driveUploadDirect(token, folderId, file);
+  if (!uploaded || !uploaded.id) return null;
+  await driveSetSharing(token, uploaded.id);
+  return { id: uploaded.id, name: file.name, url: 'https://drive.google.com/file/d/' + uploaded.id + '/view' };
+}
+/* caricamento via Apps Script: più lento (passa dal backend) ma sempre disponibile,
+   usato quando l'accesso diretto a Drive non è (ancora, o più) autorizzato */
+function uploadViaAppsScript(file) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async () => {
       try {
@@ -1662,7 +1754,17 @@ assets = {
     };
     reader.onerror = () => reject(new Error('Lettura del file non riuscita.'));
     reader.readAsDataURL(file);
-  })
+  });
+}
+
+assets = {
+  upload: async (file) => {
+    try {
+      const direct = await uploadDirectToDrive(file);
+      if (direct) return direct;
+    } catch (e) { clearSavedDriveToken(); /* si passa al metodo di riserva */ }
+    return uploadViaAppsScript(file);
+  }
 };
 
 user = {
@@ -1692,7 +1794,7 @@ function loadSavedToken() { try { return localStorage.getItem(TOKEN_KEY); } catc
 function clearSavedToken() { try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignora */ } }
 
 window.__logout = () => {
-  ID_TOKEN = null; WHOAMI_CACHE = null; stopPoll(); clearSavedToken();
+  ID_TOKEN = null; WHOAMI_CACHE = null; stopPoll(); clearSavedToken(); clearSavedDriveToken();
   try { if (window.google && window.google.accounts && window.google.accounts.id) window.google.accounts.id.disableAutoSelect(); } catch (e) { /* ignora */ }
   S.route = 'dashboard'; S.id = null; S.tab = null; S.data = {}; S.loaded = {}; S.admin = false; S.me = ''; S.uid = null; S.unauthorized = false; S.pendingEmail = ''; S.offline = false; S.late = false;
   showLogin();
