@@ -1572,8 +1572,10 @@ async function api(action, params) {
   const body = Object.assign({ action: action, idToken: ID_TOKEN }, params || {});
   let res;
   try { res = await fetch(CONFIG.SCRIPT_URL, { method: 'POST', body: JSON.stringify(body) }); }
-  catch (e) { throw new Error('Impossibile contattare il backend. Controlla la connessione.'); }
-  let j; try { j = await res.json(); } catch (e) { throw new Error('Risposta del backend non valida.'); }
+  catch (e) { const err = new Error('Impossibile contattare il backend. Controlla la connessione.'); err.transient = true; throw err; }
+  /* una risposta non-JSON (pagina di errore/quota di Google) è un problema temporaneo del
+     server, non una sessione non valida: va distinta da un vero rifiuto (j.ok === false) più sotto */
+  let j; try { j = await res.json(); } catch (e) { const err = new Error('Risposta del backend non valida.'); err.transient = true; throw err; }
   if (!j.ok) throw new Error(j.error || 'Errore del server.');
   return j;
 }
@@ -1584,7 +1586,9 @@ async function whoami(force) {
 }
 
 /* un'unica chiamata "listAll" per ogni ciclo di polling, smistata ai listener per collezione registrati da subscribe() */
-const POLL_MS = 20000;
+/* intervallo di polling: più alto = meno chiamate al backend (la quota giornaliera di Apps
+   Script non è infinita), a scapito di una sincronizzazione leggermente meno immediata */
+const POLL_MS = 30000;
 const collListeners = {};
 let pollCache = null, pollTimer = null;
 function snapFromDocs(docsMap) { return { docs: Object.keys(docsMap || {}).map((id) => ({ id: id, data: () => docsMap[id] })) }; }
@@ -1623,7 +1627,11 @@ function ensurePoll() {
   pollTimer = true;
   (async function loop() {
     while (pollTimer) {
+      /* con la scheda/app in background non si interroga il backend: su telefono può restare
+         aperta per ore senza che nessuno la guardi, e continuare a interrogarla consuma inutilmente
+         la quota giornaliera di Apps Script (causa più probabile delle disconnessioni casuali) */
       if (skipFirstPoll) { skipFirstPoll = false; }
+      else if (document.hidden) { /* salta questo giro */ }
       else {
         pollRunning = true;
         await pollOnce();
@@ -1635,6 +1643,10 @@ function ensurePoll() {
   })();
 }
 function stopPoll() { pollTimer = null; pollRunning = false; skipFirstPoll = false; Object.keys(collListeners).forEach((k) => delete collListeners[k]); pollCache = null; }
+/* tornando visibile, aggiorna subito invece di aspettare fino a POLL_MS */
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && pollTimer && !pollRunning) pollOnce(); });
+}
 
 db = {
   collection: (col) => ({
@@ -1895,17 +1907,44 @@ function showLogin(err) {
     google.accounts.id.prompt();
   }).catch((e) => { showLogin(e.message); });
 }
+/* un problema temporaneo del backend (rete assente, Google che risponde con una pagina di
+   errore/quota invece che con JSON) non deve buttare via una sessione valida: si riprova
+   qualche volta con una piccola pausa prima di arrendersi */
+async function whoamiResilient() {
+  let lastErr;
+  for (let i = 0; i < 3; i++) {
+    try { return await whoami(true); }
+    catch (e) {
+      lastErr = e;
+      if (!e.transient) throw e;
+      if (i < 2) await new Promise((res) => setTimeout(res, 1500 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
 async function onGoogleCredential(resp) {
   ID_TOKEN = resp.credential;
   const el = $('#app'); if (el) el.innerHTML = '<div class="empty">Accesso in corso…</div>';
-  try { await whoami(true); saveToken(ID_TOKEN); boot(); } catch (e) { ID_TOKEN = null; clearSavedToken(); showLogin(e.message || 'Accesso non riuscito.'); }
+  try { await whoamiResilient(); saveToken(ID_TOKEN); boot(); }
+  catch (e) {
+    if (!e.transient) { ID_TOKEN = null; clearSavedToken(); }
+    showLogin(e.transient ? 'Il server non risponde al momento. Riprova tra qualche istante.' : (e.message || 'Accesso non riuscito.'));
+  }
 }
 /* riprova ad entrare da solo con il token salvato sul dispositivo, prima di mostrare il login */
 async function tryResume() {
   const saved = loadSavedToken();
   if (!saved) { showLogin(); return; }
   ID_TOKEN = saved;
-  try { await whoami(true); boot(); } catch (e) { ID_TOKEN = null; clearSavedToken(); showLogin(); }
+  try { await whoamiResilient(); boot(); }
+  catch (e) {
+    /* solo un vero rifiuto del server invalida la sessione salvata: un errore temporaneo
+       lascia il token dov'è, così il prossimo tentativo (anche solo ricaricando la pagina)
+       può ancora riuscire senza dover rifare l'accesso con Google */
+    if (!e.transient) clearSavedToken();
+    ID_TOKEN = null;
+    showLogin(e.transient ? 'Il server non risponde al momento. Riprova tra qualche istante.' : undefined);
+  }
 }
 
 /* ---------- avvio ---------- */
@@ -1935,7 +1974,7 @@ async function boot() {
      aspettare la risposta di whoami prima di chiedere anche i dati. */
   const prefetch = api('listAll').catch(() => null);
   let w;
-  try { w = await whoami(); } catch (e) { ID_TOKEN = null; clearSavedToken(); showLogin(e.message || 'Accesso non riuscito.'); return; }
+  try { w = await whoami(); } catch (e) { if (!e.transient) clearSavedToken(); ID_TOKEN = null; showLogin(e.transient ? 'Il server non risponde al momento. Riprova tra qualche istante.' : (e.message || 'Accesso non riuscito.')); return; }
   if (w.unauthorized) { S.unauthorized = true; S.pendingEmail = w.email; render(); return; }
   S.admin = w.role === 'admin'; S.me = w.name || ''; S.uid = w.email;
   S.mese = meseOggi();
