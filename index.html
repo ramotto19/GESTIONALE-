@@ -131,6 +131,7 @@ input[type=file]{padding:6px}
 .pl>.h.now{box-shadow:inset 0 -3px 0 #C2410C}
 .cellb{width:100%;height:100%;min-height:56px;border-radius:6px;border:1px dashed var(--ln);background:none;color:var(--mu);font-size:12px;cursor:pointer;text-align:left;padding:6px 8px}
 .cellb.f{border-style:solid;font-weight:600;color:inherit}
+.chip{display:block;border-radius:5px;padding:2px 6px;margin:2px 0;font-size:11px;font-weight:600;line-height:1.5}
 .cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-right:1px solid var(--ln2);border-bottom:1px solid var(--ln2)}
 .cal .wd{padding:6px 8px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mu);border:0}
 .cal .cd{min-height:96px;border-top:1px solid var(--ln2);border-left:1px solid var(--ln2);padding:4px;display:flex;flex-direction:column;gap:3px;min-width:0}
@@ -702,14 +703,18 @@ function vPlanning() {
   sq.forEach((s) => {
     const capo = G('dipendenti', s.capoId);
     gg += '<div class="s">' + esc(s.nome) + '<span class="small muted">' + (capo ? esc(capo.cognome) + ' · ' : '') + (s.membri || []).length + ' pers.</span></div>' + giorni.map((d) => {
-      const e = effDay(s.id, d), c = e && G('commesse', e.commessaId);
-      if (c) { const t = tinta(c.id); return '<div><button class="cellb f" style="background:var(--' + t + '-bg);color:var(--' + t + '-tx);border-color:transparent" data-a="cellG" data-s="' + esc(s.id) + '" data-d="' + d + '"><span class="mono">' + esc(c.codice) + '</span><br><span class="small">' + esc(clienteNome(c.clienteId)) + '</span>' + (e.over ? '<span class="small" style="display:block;font-weight:400">solo oggi</span>' : '') + '</button></div>'; }
-      return '<div><button class="cellb" data-a="cellG" data-s="' + esc(s.id) + '" data-d="' + d + '">Libera</button></div>';
+      const e = effDay(s.id, d);
+      const chips = (e ? e.fasce : []).map((fs) => {
+        const c = G('commesse', fs.commessaId); if (!c) return '';
+        const t = tinta(c.id), orario = (fs.dalle || fs.alle) ? (esc(fs.dalle || '?') + '–' + esc(fs.alle || '?') + ' ') : '';
+        return '<span class="chip" style="background:var(--' + t + '-bg);color:var(--' + t + '-tx)">' + orario + esc(c.codice) + '</span>';
+      }).join('');
+      return '<div><button class="cellb' + (chips ? ' f' : '') + '" data-a="cellG" data-s="' + esc(s.id) + '" data-d="' + d + '">' + (chips || 'Libera') + '</button></div>';
     }).join('');
   });
   gg += '</div>';
   return pageHead('Planning settimanale', 'Tocca una cella per assegnare o cambiare la commessa di una squadra.', nav) + '<div class="card scroll" style="padding:0;margin-bottom:16px">' + g + '</div>' + card('Carico squadre (8 settimane)', carico) +
-    '<h2 style="margin:24px 0 4px">Questa settimana, giorno per giorno</h2><p class="hint" style="margin-bottom:10px">Di norma vale l’assegnazione settimanale qui sopra: tocca un giorno per assegnare una commessa diversa solo per quello.</p>' +
+    '<h2 style="margin:24px 0 4px">Questa settimana, giorno per giorno</h2><p class="hint" style="margin-bottom:10px">Di norma vale l’assegnazione settimanale qui sopra, per tutta la giornata: tocca un giorno per aggiungere fasce orarie con commesse diverse.</p>' +
     '<div class="card scroll" style="padding:0">' + gg + '</div>';
 }
 const NOMI_GG_C = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
@@ -739,32 +744,41 @@ A.planSave = async (d) => {
   try { for (let i = 0; i < n; i++) { const w = addDays(d.w, 7 * i); await put('assegnazioni', d.s + '_' + w, { squadraId: d.s, commessaId: cid, settimana: w, note }); } closeModal(); toast('Assegnazione salvata.'); } catch (e) { /* già segnalato */ }
 };
 A.planDel = async (d) => { try { await remove('assegnazioni', d.s + '_' + d.w); closeModal(); } catch (e) { /* già segnalato */ } };
+/* fasce orarie del giorno: elenco letto dal documento assegnazioniG (nuovo formato {fasce:[...]},
+   con compatibilità per il vecchio formato a singola commessa creato prima di questa modifica) */
+function fasceOf(sqId, giorno) {
+  const doc = G('assegnazioniG', sqId + '_' + giorno);
+  if (!doc) return [];
+  if (doc.fasce) return doc.fasce;
+  return doc.commessaId ? [{ id: 'legacy', commessaId: doc.commessaId, note: doc.note, dalle: '', alle: '' }] : [];
+}
+async function ensureG(sqId, giorno) {
+  const id = sqId + '_' + giorno;
+  if (!G('assegnazioniG', id)) await put('assegnazioniG', id, { squadraId: sqId, giorno: giorno, fasce: [] });
+  return id;
+}
 A.cellG = (d) => {
-  const sq = G('squadre', d.s), a = G('assegnazioniG', d.s + '_' + d.d);
-  const w = G('assegnazioni', d.s + '_' + monday(d.d)), wc = w && G('commesse', w.commessaId);
-  const cs = D('commesse').filter((c) => ATTIVE.includes(c.stato) || (a && a.commessaId === c.id)).sort(byStr((x) => x.codice));
-  const base = wc ? ('Nel planning settimanale: <b>' + esc(commessaLabel(wc)) + '</b>.') : 'Questa squadra non ha un’assegnazione settimanale.';
-  openModal('<div id="pl" data-s="' + esc(d.s) + '" data-d="' + d.d + '"><h2>' + esc(sq.nome) + ' · ' + esc(fmtD(d.d)) + '</h2><p class="hint" style="margin:6px 0 12px">' + base + ' Qui puoi assegnare una commessa diversa solo per questo giorno.</p><div class="fgrid"><div class="fld"><label for="pgc">Commessa per questo giorno</label><select id="pgc" data-c="planGSel" data-s="' + esc(d.s) + '" data-d="' + d.d + '"><option value="">Come da planning settimanale</option>' + cs.map((c) => '<option value="' + esc(c.id) + '"' + (a && a.commessaId === c.id ? ' selected' : '') + '>' + esc(commessaLabel(c) + ' · ' + c.titolo) + '</option>').join('') + '</select></div><div class="fld"><label for="pgnote">Note</label><input id="pgnote" type="text" value="' + esc(a ? a.note : '') + '"></div></div><div id="chkg" style="margin-top:12px"></div><div class="row sp" style="margin-top:14px"><span></span><span class="row"><button class="btn" data-a="formCancel">Annulla</button><button class="btn p" id="pgsave" data-a="planGSave" data-s="' + esc(d.s) + '" data-d="' + d.d + '">Salva</button></span></div></div>');
-  if (a) C.planGSel({ s: d.s, d: d.d }, a.commessaId);
+  const sq = G('squadre', d.s), w = G('assegnazioni', d.s + '_' + monday(d.d)), wc = w && G('commesse', w.commessaId);
+  const fasce = fasceOf(d.s, d.d).slice().sort((a, b) => (a.dalle || '').localeCompare(b.dalle || ''));
+  const base = wc ? ('Nel planning settimanale: <b>' + esc(commessaLabel(wc)) + '</b>, per tutta la giornata se qui sotto non ci sono fasce orarie.') : 'Questa squadra non ha un’assegnazione settimanale: senza fasce orarie qui sotto resta libera.';
+  const rows = fasce.length ? fasce.map((fs, i) => {
+    const c = G('commesse', fs.commessaId), t = c ? tinta(c.id) : 'gray';
+    return '<div class="blk clk" data-a="fasciaEdit" data-s="' + esc(d.s) + '" data-d="' + d.d + '" data-i="' + i + '"><div style="min-width:110px"><span class="chip" style="background:var(--' + t + '-bg);color:var(--' + t + '-tx)"><b>' + esc((fs.dalle || '?') + '–' + (fs.alle || '?')) + '</b></span></div><div style="flex:1"><span class="mono">' + esc(c ? c.codice : '?') + '</span>' + (c ? ' · ' + esc(clienteNome(c.clienteId)) : '') + (fs.note ? '<div class="small muted">' + esc(fs.note) + '</div>' : '') + '</div></div>';
+  }).join('') : '<p class="empty" style="padding:10px 0">Nessuna fascia oraria impostata per questo giorno.</p>';
+  openModal('<div><h2>' + esc(sq.nome) + ' · ' + esc(fmtD(d.d)) + '</h2><p class="hint" style="margin:6px 0 12px">' + base + '</p>' + rows + '<div class="row sp" style="margin-top:14px"><button class="btn" data-a="fasciaNew" data-s="' + esc(d.s) + '" data-d="' + d.d + '">+ Aggiungi fascia oraria</button><button class="btn p" data-a="formCancel">Chiudi</button></div></div>');
 };
-C.planGSel = (d, v) => {
-  const box = $('#chkg'); if (!box) return;
-  if (!v) { box.innerHTML = ''; return; }
-  const r = verifica(G('commesse', v), G('squadre', d.s), monday(d.d));
-  let h = '';
-  if (r.bl.length) h += '<div class="alert red"><b>Attenzione</b><ul>' + r.bl.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>' + (S.admin ? '<label class="row" style="margin-top:8px"><input type="checkbox" id="pgov"> Assegna comunque (solo amministratore)</label>' : '') + '</div>';
-  if (r.av.length) h += '<div class="alert amber" style="margin-top:8px"><ul>' + r.av.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>';
-  box.innerHTML = h;
+const fasciaFields = () => [
+  { k: 'dalle', l: 'Dalle', t: 'time', req: true, half: true },
+  { k: 'alle', l: 'Alle', t: 'time', req: true, half: true },
+  { k: 'commessaId', l: 'Commessa', t: 'select', req: true, opts: D('commesse').filter((c) => ATTIVE.includes(c.stato)).sort(byStr((x) => x.codice)).map((c) => [c.id, commessaLabel(c) + ' · ' + c.titolo]) },
+  { k: 'note', l: 'Note' }
+];
+const fasciaMap = (it) => { if (it.dalle && it.alle && it.dalle >= it.alle) throw { vmsg: 'L’orario di fine deve essere dopo quello di inizio.' }; return it; };
+A.fasciaNew = async (d) => {
+  try { await ensureG(d.s, d.d); } catch (e) { return; }
+  editSub({ col: 'assegnazioniG', id: d.s + '_' + d.d, key: 'fasce', title: 'Nuova fascia oraria', fields: fasciaFields(), map: fasciaMap });
 };
-A.planGSave = async (d) => {
-  const cid = $('#pgc').value;
-  if (!cid) { await A.planGDel(d); return; }
-  const r = verifica(G('commesse', cid), G('squadre', d.s), monday(d.d)), ov = $('#pgov');
-  if (r.bl.length && !(ov && ov.checked)) { toast('Assegnazione bloccata: risolvi i punti indicati.', 'err'); return; }
-  const note = $('#pgnote').value.trim();
-  try { await put('assegnazioniG', d.s + '_' + d.d, { squadraId: d.s, commessaId: cid, giorno: d.d, note }); closeModal(); toast('Assegnazione del giorno salvata.'); } catch (e) { /* già segnalato */ }
-};
-A.planGDel = async (d) => { try { await remove('assegnazioniG', d.s + '_' + d.d); closeModal(); } catch (e) { /* già segnalato */ } };
+A.fasciaEdit = (d) => editSub({ col: 'assegnazioniG', id: d.s + '_' + d.d, key: 'fasce', i: d.i, title: 'Fascia oraria', fields: fasciaFields(), map: fasciaMap });
 A.formCancel = () => closeModal();
 A.formDel = async () => { const f = FORM; if (!f || !f.onDelete) return; if (!(await confirmBox('Eliminare definitivamente?', 'Elimina'))) return; try { await f.onDelete(); closeModal(); } catch (e) { toast(errMsg(e), 'err'); } };
 
@@ -1124,13 +1138,14 @@ function assegnateDi(dipId) {
   }).filter(Boolean).sort((p, q) => p.w.localeCompare(q.w) || p.c.localeCompare(q.c));
 }
 const assegnateU = (u) => (S.admin ? assegnateDi((G('accessi', u) || {}).dipendenteId) : ((G('accessi', u) || {}).assegnate || []));
-/* assegnazione di una squadra in un giorno preciso: un'assegnazione giornaliera (assegnazioniG)
-   ha la precedenza, altrimenti vale quella della settimana (assegnazioni) */
+/* fasce orarie effettive di una squadra in un giorno preciso: se ci sono fasce orarie
+   impostate per quel giorno (assegnazioniG) hanno la precedenza, altrimenti vale per tutta
+   la giornata l'assegnazione della settimana (assegnazioni) */
 function effDay(sqId, giorno) {
-  const gg = G('assegnazioniG', sqId + '_' + giorno);
-  if (gg) return { commessaId: gg.commessaId, note: gg.note, over: true };
+  const fasce = fasceOf(sqId, giorno);
+  if (fasce.length) return { fasce: fasce.slice().sort((a, b) => (a.dalle || '').localeCompare(b.dalle || '')), over: true };
   const w = G('assegnazioni', sqId + '_' + monday(giorno));
-  return w ? { commessaId: w.commessaId, note: w.note, over: false } : null;
+  return w ? { fasce: [{ commessaId: w.commessaId, note: w.note, dalle: '', alle: '' }], over: false } : null;
 }
 /* dettaglio giorno per giorno della settimana corrente per un dipendente (tutte le sue squadre) */
 function settimanaDi(dipId) {
@@ -1140,8 +1155,11 @@ function settimanaDi(dipId) {
   const wk = monday(today()), out = [];
   Array.from({ length: 7 }, (_, i) => addDays(wk, i)).forEach((giorno) => {
     sq.forEach((s) => {
-      const e = effDay(s.id, giorno), c = e && G('commesse', e.commessaId); if (!c) return;
-      out.push({ giorno, c: commessaLabel(c), t: c.titolo || '', sq: s.nome, over: e.over });
+      const e = effDay(s.id, giorno); if (!e) return;
+      e.fasce.forEach((fs) => {
+        const c = G('commesse', fs.commessaId); if (!c) return;
+        out.push({ giorno, c: commessaLabel(c), t: c.titolo || '', sq: s.nome, dalle: fs.dalle || '', alle: fs.alle || '', over: e.over });
+      });
     });
   });
   return out;
@@ -1157,7 +1175,7 @@ function boxSettimana(list) {
   const wk = monday(today()), oggi = today();
   const rows = Array.from({ length: 7 }, (_, i) => addDays(wk, i)).map((giorno, i) => {
     const es = list.filter((x) => x.giorno === giorno);
-    const body = es.length ? es.map((x) => '<div><span class="mono">' + esc(x.c) + '</span>' + (x.t ? ' · ' + esc(x.t) : '') + '<span class="small muted"> · ' + esc(x.sq) + (x.over ? ' · solo questo giorno' : '') + '</span></div>').join('') : '<span class="muted small">Nessuna assegnazione</span>';
+    const body = es.length ? es.map((x) => '<div>' + (x.dalle || x.alle ? '<b>' + esc((x.dalle || '?') + '–' + (x.alle || '?')) + '</b> ' : '') + '<span class="mono">' + esc(x.c) + '</span>' + (x.t ? ' · ' + esc(x.t) : '') + '<span class="small muted"> · ' + esc(x.sq) + (x.over ? ' · fascia dedicata' : '') + '</span></div>').join('') : '<span class="muted small">Nessuna assegnazione</span>';
     return '<div class="blk"><div style="min-width:170px"><b>' + (giorno === oggi ? '<span style="color:#C2410C">Oggi</span> · ' : '') + esc(NOMI_GG[i]) + '</b><div class="small muted">' + esc(fmtD(giorno)) + '</div></div><div style="flex:1">' + body + '</div></div>';
   }).join('');
   return '<section class="card" style="margin-bottom:16px"><h2>Questa settimana</h2>' + rows + '</section>';
