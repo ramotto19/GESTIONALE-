@@ -106,7 +106,9 @@ subito con il proprio account Google, ciascuno vedendo solo ciò che gli compete
 ## Struttura dati
 
 Tutto è salvato nel Google Sheet creato da `setup()`: una scheda per ciascuna collezione
-(clienti, commesse, dipendenti, squadre, assegnazioni, tipiLavoro, categorie, docAzienda,
-assicurazioni, mezzi, documenti, verbali, scadenze, riservato, accessi, impostazioni,
-commesseElenco, registri) più le ore lavorate. Ogni riga è `id | json | aggiornato`: puoi
-sempre ispezionare o esportare i dati aprendo direttamente il foglio da Google Drive.
+(clienti, commesse, dipendenti, squadre, assegnazioni, assegnazioniG, tipiLavoro, categorie,
+docAzienda, assicurazioni, mezzi, documenti, verbali, scadenze, riservato, accessi,
+impostazioni, commesseElenco, registri) più le ore lavorate. Ogni riga è `id | json | aggiornato`:
+puoi sempre ispezionare o esportare i dati aprendo direttamente il foglio da Google Drive.
+La scheda `assegnazioniG` (assegnazioni giornaliere del planning) viene creata automaticamente
+al primo utilizzo: non serve rieseguire `setup()`.

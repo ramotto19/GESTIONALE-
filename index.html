@@ -124,6 +124,7 @@ input[type=file]{padding:6px}
 .alert.green{background:var(--green-bg);color:var(--green-tx)}
 .alert ul{margin:4px 0 0;padding-left:18px}
 .pl{display:grid;grid-template-columns:170px repeat(8,minmax(96px,1fr));min-width:940px}
+.pl.d7{grid-template-columns:170px repeat(7,minmax(110px,1fr));min-width:840px}
 .pl>div{border-top:1px solid var(--ln2);border-left:1px solid var(--ln2);min-height:64px;padding:4px}
 .pl>.h{background:var(--hd);font-size:12px;font-weight:600;min-height:48px;display:flex;flex-direction:column;justify-content:center;padding:6px 8px}
 .pl>.s{display:flex;flex-direction:column;justify-content:center;border-left:0;padding:6px 10px;font-weight:600}
@@ -182,7 +183,7 @@ const sum = (a, f) => a.reduce((t, x) => t + (Number(f ? f(x) : x) || 0), 0);
 const byStr = (f) => (a, b) => String(f(a) || '').localeCompare(String(f(b) || ''), 'it');
 
 /* ---------- stato ---------- */
-const COLS = ['clienti', 'commesse', 'dipendenti', 'squadre', 'assegnazioni', 'tipiLavoro', 'categorie', 'docAzienda', 'assicurazioni', 'mezzi', 'documenti', 'verbali', 'scadenze', 'riservato', 'accessi', 'impostazioni', 'commesseElenco', 'registri'];
+const COLS = ['clienti', 'commesse', 'dipendenti', 'squadre', 'assegnazioni', 'assegnazioniG', 'tipiLavoro', 'categorie', 'docAzienda', 'assicurazioni', 'mezzi', 'documenti', 'verbali', 'scadenze', 'riservato', 'accessi', 'impostazioni', 'commesseElenco', 'registri'];
 const S = { route: 'dashboard', id: null, tab: null, q: '', fstato: '', week: null, calY: null, calM: null, ftipo: '', dcat: '', ptab: 'dipendenti', atab: 'documenti', data: {}, loaded: {}, admin: false, me: '', uid: null, late: false, offline: false, mese: null, otab: 'riepilogo', opers: null, myOre: { mese: null, righe: [], loaded: false }, oreAll: {}, oreLoading: false, prof: {} };
 const D = (c) => Object.values(S.data[c] || {});
 const G = (c, id) => (S.data[c] || {})[id];
@@ -696,8 +697,22 @@ function vPlanning() {
   });
   g += '</div>';
   const carico = '<div class="stack">' + sq.map((s) => { const n = weeks.filter((w) => G('assegnazioni', s.id + '_' + w)).length; return '<div class="row sp"><span style="width:110px"><b>' + esc(s.nome) + '</b></span><span style="flex:1;min-width:120px">' + bar(100 * n / 8) + '</span><span class="small muted">' + n + ' / 8 settimane</span></div>'; }).join('') + '</div>';
-  return pageHead('Planning settimanale', 'Tocca una cella per assegnare o cambiare la commessa di una squadra.', nav) + '<div class="card scroll" style="padding:0;margin-bottom:16px">' + g + '</div>' + card('Carico squadre (8 settimane)', carico);
+  const wkOggi = monday(today()), giorni = Array.from({ length: 7 }, (_, i) => addDays(wkOggi, i));
+  let gg = '<div class="pl d7"><div class="h">Squadra</div>' + giorni.map((d, i) => '<div class="h' + (d === today() ? ' now' : '') + '">' + NOMI_GG_C[i] + '<span class="muted small">' + fmtShort(d) + '</span></div>').join('');
+  sq.forEach((s) => {
+    const capo = G('dipendenti', s.capoId);
+    gg += '<div class="s">' + esc(s.nome) + '<span class="small muted">' + (capo ? esc(capo.cognome) + ' · ' : '') + (s.membri || []).length + ' pers.</span></div>' + giorni.map((d) => {
+      const e = effDay(s.id, d), c = e && G('commesse', e.commessaId);
+      if (c) { const t = tinta(c.id); return '<div><button class="cellb f" style="background:var(--' + t + '-bg);color:var(--' + t + '-tx);border-color:transparent" data-a="cellG" data-s="' + esc(s.id) + '" data-d="' + d + '"><span class="mono">' + esc(c.codice) + '</span><br><span class="small">' + esc(clienteNome(c.clienteId)) + '</span>' + (e.over ? '<span class="small" style="display:block;font-weight:400">solo oggi</span>' : '') + '</button></div>'; }
+      return '<div><button class="cellb" data-a="cellG" data-s="' + esc(s.id) + '" data-d="' + d + '">Libera</button></div>';
+    }).join('');
+  });
+  gg += '</div>';
+  return pageHead('Planning settimanale', 'Tocca una cella per assegnare o cambiare la commessa di una squadra.', nav) + '<div class="card scroll" style="padding:0;margin-bottom:16px">' + g + '</div>' + card('Carico squadre (8 settimane)', carico) +
+    '<h2 style="margin:24px 0 4px">Questa settimana, giorno per giorno</h2><p class="hint" style="margin-bottom:10px">Di norma vale l’assegnazione settimanale qui sopra: tocca un giorno per assegnare una commessa diversa solo per quello.</p>' +
+    '<div class="card scroll" style="padding:0">' + gg + '</div>';
 }
+const NOMI_GG_C = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
 A.wk = (d) => { S.week = addDays(S.week || monday(today()), 7 * (+d.n)); queueRender(); };
 A.wkToday = () => { S.week = monday(today()); queueRender(); };
 A.cell = (d) => {
@@ -724,6 +739,32 @@ A.planSave = async (d) => {
   try { for (let i = 0; i < n; i++) { const w = addDays(d.w, 7 * i); await put('assegnazioni', d.s + '_' + w, { squadraId: d.s, commessaId: cid, settimana: w, note }); } closeModal(); toast('Assegnazione salvata.'); } catch (e) { /* già segnalato */ }
 };
 A.planDel = async (d) => { try { await remove('assegnazioni', d.s + '_' + d.w); closeModal(); } catch (e) { /* già segnalato */ } };
+A.cellG = (d) => {
+  const sq = G('squadre', d.s), a = G('assegnazioniG', d.s + '_' + d.d);
+  const w = G('assegnazioni', d.s + '_' + monday(d.d)), wc = w && G('commesse', w.commessaId);
+  const cs = D('commesse').filter((c) => ATTIVE.includes(c.stato) || (a && a.commessaId === c.id)).sort(byStr((x) => x.codice));
+  const base = wc ? ('Nel planning settimanale: <b>' + esc(commessaLabel(wc)) + '</b>.') : 'Questa squadra non ha un’assegnazione settimanale.';
+  openModal('<div id="pl" data-s="' + esc(d.s) + '" data-d="' + d.d + '"><h2>' + esc(sq.nome) + ' · ' + esc(fmtD(d.d)) + '</h2><p class="hint" style="margin:6px 0 12px">' + base + ' Qui puoi assegnare una commessa diversa solo per questo giorno.</p><div class="fgrid"><div class="fld"><label for="pgc">Commessa per questo giorno</label><select id="pgc" data-c="planGSel" data-s="' + esc(d.s) + '" data-d="' + d.d + '"><option value="">Come da planning settimanale</option>' + cs.map((c) => '<option value="' + esc(c.id) + '"' + (a && a.commessaId === c.id ? ' selected' : '') + '>' + esc(commessaLabel(c) + ' · ' + c.titolo) + '</option>').join('') + '</select></div><div class="fld"><label for="pgnote">Note</label><input id="pgnote" type="text" value="' + esc(a ? a.note : '') + '"></div></div><div id="chkg" style="margin-top:12px"></div><div class="row sp" style="margin-top:14px"><span></span><span class="row"><button class="btn" data-a="formCancel">Annulla</button><button class="btn p" id="pgsave" data-a="planGSave" data-s="' + esc(d.s) + '" data-d="' + d.d + '">Salva</button></span></div></div>');
+  if (a) C.planGSel({ s: d.s, d: d.d }, a.commessaId);
+};
+C.planGSel = (d, v) => {
+  const box = $('#chkg'); if (!box) return;
+  if (!v) { box.innerHTML = ''; return; }
+  const r = verifica(G('commesse', v), G('squadre', d.s), monday(d.d));
+  let h = '';
+  if (r.bl.length) h += '<div class="alert red"><b>Attenzione</b><ul>' + r.bl.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>' + (S.admin ? '<label class="row" style="margin-top:8px"><input type="checkbox" id="pgov"> Assegna comunque (solo amministratore)</label>' : '') + '</div>';
+  if (r.av.length) h += '<div class="alert amber" style="margin-top:8px"><ul>' + r.av.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>';
+  box.innerHTML = h;
+};
+A.planGSave = async (d) => {
+  const cid = $('#pgc').value;
+  if (!cid) { await A.planGDel(d); return; }
+  const r = verifica(G('commesse', cid), G('squadre', d.s), monday(d.d)), ov = $('#pgov');
+  if (r.bl.length && !(ov && ov.checked)) { toast('Assegnazione bloccata: risolvi i punti indicati.', 'err'); return; }
+  const note = $('#pgnote').value.trim();
+  try { await put('assegnazioniG', d.s + '_' + d.d, { squadraId: d.s, commessaId: cid, giorno: d.d, note }); closeModal(); toast('Assegnazione del giorno salvata.'); } catch (e) { /* già segnalato */ }
+};
+A.planGDel = async (d) => { try { await remove('assegnazioniG', d.s + '_' + d.d); closeModal(); } catch (e) { /* già segnalato */ } };
 A.formCancel = () => closeModal();
 A.formDel = async () => { const f = FORM; if (!f || !f.onDelete) return; if (!(await confirmBox('Eliminare definitivamente?', 'Elimina'))) return; try { await f.onDelete(); closeModal(); } catch (e) { toast(errMsg(e), 'err'); } };
 
@@ -791,7 +832,7 @@ let dipFields = () => [{ k: 'nome', l: 'Nome', req: true, half: true }, { k: 'co
 A.dipNew = () => openForm({ title: 'Nuovo dipendente', fields: dipFields(), values: { attivo: true }, onSave: async (v) => { const id = newId('dipendenti'); await put('dipendenti', id, Object.assign({}, v, { abilitazioni: [] })); go('dipendente', id); } });
 const sqFields = () => [{ k: 'nome', l: 'Nome squadra', req: true }, { k: 'capoId', l: 'Capo squadra', t: 'select', opts: D('dipendenti').filter((d) => d.attivo !== false).sort(byStr((x) => x.cognome)).map((d) => [d.id, nomeD(d)]) }, { k: 'membri', l: 'Componenti', t: 'multi', opts: D('dipendenti').filter((d) => d.attivo !== false).sort(byStr((x) => x.cognome)).map((d) => [d.id, nomeD(d)]) }];
 A.sqNew = () => openForm({ title: 'Nuova squadra', fields: sqFields(), onSave: (v) => put('squadre', newId('squadre'), v) });
-A.sqEdit = (d) => { const s = G('squadre', d.id); openForm({ title: 'Squadra', fields: sqFields(), values: s, onSave: (v) => patch('squadre', s.id, v), onDelete: S.admin ? async () => { await remove('squadre', s.id); D('assegnazioni').filter((a) => a.squadraId === s.id).forEach((a) => remove('assegnazioni', a.id)); } : null }); };
+A.sqEdit = (d) => { const s = G('squadre', d.id); openForm({ title: 'Squadra', fields: sqFields(), values: s, onSave: (v) => patch('squadre', s.id, v), onDelete: S.admin ? async () => { await remove('squadre', s.id); D('assegnazioni').filter((a) => a.squadraId === s.id).forEach((a) => remove('assegnazioni', a.id)); D('assegnazioniG').filter((a) => a.squadraId === s.id).forEach((a) => remove('assegnazioniG', a.id)); } : null }); };
 
 function vDipendente() {
   const d = G('dipendenti', S.id);
@@ -1083,10 +1124,43 @@ function assegnateDi(dipId) {
   }).filter(Boolean).sort((p, q) => p.w.localeCompare(q.w) || p.c.localeCompare(q.c));
 }
 const assegnateU = (u) => (S.admin ? assegnateDi((G('accessi', u) || {}).dipendenteId) : ((G('accessi', u) || {}).assegnate || []));
+/* assegnazione di una squadra in un giorno preciso: un'assegnazione giornaliera (assegnazioniG)
+   ha la precedenza, altrimenti vale quella della settimana (assegnazioni) */
+function effDay(sqId, giorno) {
+  const gg = G('assegnazioniG', sqId + '_' + giorno);
+  if (gg) return { commessaId: gg.commessaId, note: gg.note, over: true };
+  const w = G('assegnazioni', sqId + '_' + monday(giorno));
+  return w ? { commessaId: w.commessaId, note: w.note, over: false } : null;
+}
+/* dettaglio giorno per giorno della settimana corrente per un dipendente (tutte le sue squadre) */
+function settimanaDi(dipId) {
+  if (!dipId) return [];
+  const sq = D('squadre').filter((s) => (s.membri || []).includes(dipId) || s.capoId === dipId);
+  if (!sq.length) return [];
+  const wk = monday(today()), out = [];
+  Array.from({ length: 7 }, (_, i) => addDays(wk, i)).forEach((giorno) => {
+    sq.forEach((s) => {
+      const e = effDay(s.id, giorno), c = e && G('commesse', e.commessaId); if (!c) return;
+      out.push({ giorno, c: commessaLabel(c), t: c.titolo || '', sq: s.nome, over: e.over });
+    });
+  });
+  return out;
+}
+const settimanaU = (u) => (S.admin ? settimanaDi((G('accessi', u) || {}).dipendenteId) : ((G('accessi', u) || {}).settimana || []));
 function settLabel(w) { const m = monday(today()); return w === m ? 'Questa settimana' : w === addDays(m, 7) ? 'Prossima settimana' : w === addDays(m, -7) ? 'Settimana scorsa' : 'Sett. ' + isoWeek(w) + ' · dal ' + fmtD(w); }
 function boxAssegnate(list, titolo) {
   const rows = list.length ? list.map((x) => '<div class="blk"><div style="min-width:170px"><b>' + esc(settLabel(x.w)) + '</b></div><div style="flex:1"><span class="mono">' + esc(x.c) + '</span>' + (x.t ? ' · ' + esc(x.t) : '') + '<div class="small muted">' + esc(x.sq) + '</div></div></div>').join('') : '<div class="empty">Nessuna assegnazione in pianificazione per le prossime settimane.</div>';
   return '<section class="card" style="margin-bottom:16px"><h2>' + esc(titolo || 'Commesse a cui sei assegnato') + '</h2>' + rows + '</section>';
+}
+const NOMI_GG = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
+function boxSettimana(list) {
+  const wk = monday(today()), oggi = today();
+  const rows = Array.from({ length: 7 }, (_, i) => addDays(wk, i)).map((giorno, i) => {
+    const es = list.filter((x) => x.giorno === giorno);
+    const body = es.length ? es.map((x) => '<div><span class="mono">' + esc(x.c) + '</span>' + (x.t ? ' · ' + esc(x.t) : '') + '<span class="small muted"> · ' + esc(x.sq) + (x.over ? ' · solo questo giorno' : '') + '</span></div>').join('') : '<span class="muted small">Nessuna assegnazione</span>';
+    return '<div class="blk"><div style="min-width:170px"><b>' + (giorno === oggi ? '<span style="color:#C2410C">Oggi</span> · ' : '') + esc(NOMI_GG[i]) + '</b><div class="small muted">' + esc(fmtD(giorno)) + '</div></div><div style="flex:1">' + body + '</div></div>';
+  }).join('');
+  return '<section class="card" style="margin-bottom:16px"><h2>Questa settimana</h2>' + rows + '</section>';
 }
 
 /* ---------- le mie ore (dipendente) e registro ore (amministrazione) ---------- */
@@ -1118,7 +1192,7 @@ function vMieOre() {
   h += '<div class="row sp" style="margin-bottom:14px">' + meseNav('omese') + '<span>' + bd(st.t, st.c) + '</span></div>';
   if (lock) h += '<div class="alert green" style="margin-bottom:12px">Questo mese è stato approvato dall\u2019amministrazione. Per correggerlo chiedi di riaprirlo.</div>';
   if (st.k === 'mod') h += '<div class="alert red" style="margin-bottom:12px">Le ore sono state modificate dopo l\u2019approvazione: ' + (adm ? 'ricontrolla e approva di nuovo.' : 'l\u2019amministrazione deve ricontrollarle.') + '</div>';
-  return h + boxAssegnate(assegnateU(u), adm ? 'Commesse assegnate in planning' : '') + kpiOre(righe) + '<section class="card">' + (caricato(u, m) ? giorniTable(righe, { u: u, m: m, edit: !lock }) : '<div class="empty">Caricamento delle ore…</div>') + '</section>';
+  return h + boxSettimana(settimanaU(u)) + boxAssegnate(assegnateU(u), adm ? 'Commesse assegnate in planning' : '') + kpiOre(righe) + '<section class="card">' + (caricato(u, m) ? giorniTable(righe, { u: u, m: m, edit: !lock }) : '<div class="empty">Caricamento delle ore…</div>') + '</section>';
 }
 A.omese = (d) => { S.mese = +d.n === 0 ? meseOggi() : addMese(S.mese || meseOggi(), +d.n); if (S.route === 'ore') { loadAllOre(S.mese); } else { watchMio(S.mese); ensureView(); } queueRender(); };
 
@@ -1281,7 +1355,12 @@ function maybeSync() {
     D('commesse').filter((c) => ATTIVE.includes(c.stato)).forEach((c) => { want[c.id] = { codice: c.codice, label: commessaLabel(c), stato: c.stato }; });
     for (const id of Object.keys(want)) { const cur = G('commesseElenco', id), w = want[id]; if (!cur || cur.label !== w.label || cur.codice !== w.codice || cur.stato !== w.stato) { try { await db.doc('commesseElenco/' + id).set(w); } catch (e) { /* ignora */ } } }
     for (const x of D('commesseElenco')) if (!want[x.id]) { try { await db.doc('commesseElenco/' + x.id).delete(); } catch (e) { /* ignora */ } }
-    if (S.loaded.assegnazioni && S.loaded.squadre && S.loaded.accessi) for (const a of D('accessi').filter((y) => y.dipendenteId)) { const w = assegnateDi(a.dipendenteId); if (JSON.stringify(w) !== JSON.stringify(a.assegnate || [])) { try { await db.doc('accessi/' + a.id).update({ assegnate: w }); } catch (e) { /* ignora */ } } }
+    if (S.loaded.assegnazioni && S.loaded.assegnazioniG && S.loaded.squadre && S.loaded.accessi) for (const a of D('accessi').filter((y) => y.dipendenteId)) {
+      const w = assegnateDi(a.dipendenteId), s = settimanaDi(a.dipendenteId), p = {};
+      if (JSON.stringify(w) !== JSON.stringify(a.assegnate || [])) p.assegnate = w;
+      if (JSON.stringify(s) !== JSON.stringify(a.settimana || [])) p.settimana = s;
+      if (Object.keys(p).length) { try { await db.doc('accessi/' + a.id).update(p); } catch (e) { /* ignora */ } }
+    }
   }, 800);
 }
 /* ---------- Personalizza: pagine, campi, categorie, iter ed elenchi modificabili dall'app ---------- */
@@ -1953,7 +2032,7 @@ function subscribe(col) {
     const m = {};
     snap.docs.forEach((d) => { m[d.id] = Object.assign({}, d.data(), { id: d.id }); });
     S.data[col] = m; S.loaded[col] = true; if (col === 'impostazioni') applyConfig(); queueRender();
-    if (['commesse', 'commesseElenco', 'clienti', 'assegnazioni', 'squadre', 'accessi'].includes(col)) maybeSync();
+    if (['commesse', 'commesseElenco', 'clienti', 'assegnazioni', 'assegnazioniG', 'squadre', 'accessi'].includes(col)) maybeSync();
     if (col === 'accessi') { resolveProf(); if (S.route === 'ore' && !S.oreLoading) loadAllOre(S.mese || meseOggi(), true); }
   }, (err) => { console.warn('db', col, err); S.data[col] = S.data[col] || {}; S.loaded[col] = true; queueRender(); });
 }

@@ -13,7 +13,7 @@
  * Setup: vedi il README nella cartella principale del repository.
  */
 
-var COLS = ['clienti', 'commesse', 'dipendenti', 'squadre', 'assegnazioni', 'tipiLavoro', 'categorie', 'docAzienda', 'assicurazioni', 'mezzi', 'documenti', 'verbali', 'scadenze', 'riservato', 'accessi', 'impostazioni', 'commesseElenco', 'registri'];
+var COLS = ['clienti', 'commesse', 'dipendenti', 'squadre', 'assegnazioni', 'assegnazioniG', 'tipiLavoro', 'categorie', 'docAzienda', 'assicurazioni', 'mezzi', 'documenti', 'verbali', 'scadenze', 'riservato', 'accessi', 'impostazioni', 'commesseElenco', 'registri'];
 
 /* Incolla qui il Client ID OAuth creato su Google Cloud Console
    (Credenziali → ID client OAuth → tipo Applicazione web).
