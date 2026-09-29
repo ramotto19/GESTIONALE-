@@ -1940,15 +1940,23 @@ function dispatchCollection(col) {
   const key = JSON.stringify((pollCache && pollCache[col]) || {});
   if (reg.last !== key) { reg.last = key; reg.cbs.forEach((cb) => cb(snapFromDocs(pollCache[col]))); }
 }
+/* ogni scrittura locale (es. spostare un passaggio con le frecce) incrementa writeSeq: se un
+   giro di polling già in corso finisce DOPO che l'utente ha appena salvato qualcosa, la sua
+   risposta è ormai vecchia e non deve sovrascrivere quel salvataggio appena fatto (altrimenti
+   il cambiamento sembra "funzionare male": si vede per un attimo e poi torna indietro). */
+let writeSeq = 0;
 function applyLocalWrite(col, id, doc) {
+  writeSeq++;
   if (!pollCache) pollCache = {};
   if (!pollCache[col]) pollCache[col] = {};
   if (doc == null) delete pollCache[col][id]; else pollCache[col][id] = doc;
   dispatchCollection(col);
 }
 async function pollOnce() {
+  const seqBefore = writeSeq;
   try {
     const r = await api('listAll');
+    if (writeSeq !== seqBefore) return;
     pollCache = r.cols || {};
     Object.keys(collListeners).forEach(dispatchCollection);
   } catch (e) {
