@@ -348,16 +348,6 @@ const DEFAULT_ITER = [
   { codice: 'DICO', nome: 'DICO', bloccante: true, voci: ['Schemi e planimetrie as built', 'Certificazioni dei materiali', 'Verifiche e misure di collaudo', 'Dichiarazione di conformità firmata', 'Allegati obbligatori'] },
   { codice: 'FATTURA_SALDO', nome: 'Fattura di saldo', voci: ['Emissione fattura', 'Incasso del saldo', 'Chiusura pratica'] }
 ];
-/* ruolo della tua impresa in una specifica commessa: determina quale checklist di sicurezza
-   viene proposta nell'iter (vedi SIC_PER_RUOLO più sotto). "Impresa esecutrice con contratto
-   diretto" ed "esecutrice alla pari" sono la stessa cosa: nessun subappalto di mezzo, contratto
-   diretto col committente, coordinati da CSE e committente. */
-const RUOLI_COMMESSA = [
-  ['ESECUTRICE_ALLA_PARI', 'Impresa esecutrice con contratto diretto (alla pari)'],
-  ['AFFIDATARIA', 'Impresa affidataria'],
-  ['SUBAPPALTATRICE', 'Impresa subappaltatrice'],
-  ['DIREZIONE_LAVORI', 'Direzione Lavori']
-];
 const SIC_ESECUTRICE = { codice: 'SICUREZZA_ALLAPARI', nome: 'Sicurezza cantiere (impresa esecutrice)', voci: [
   '[Prima di entrare in cantiere] Ricevuto e letto il PSC, con presa visione firmata',
   '[Prima di entrare in cantiere] Nominativi di committente, CSE, direttore lavori e delle altre imprese, con contatti',
@@ -530,25 +520,21 @@ const SIC_DL = { codice: 'SICUREZZA_DL', nome: 'Sicurezza e adempimenti (Direzio
   '[Punti di incontro con l’impresa] Sicurezza: rischi visti dalla DL comunicati a CSE e impresa, e viceversa',
   '[Punti di incontro con l’impresa] Fine lavori: DiCo e documenti consegnati dall’impresa e controllati dalla DL prima della chiusura'
 ] };
-const SIC_PER_RUOLO = {
-  ESECUTRICE_ALLA_PARI: [SIC_ESECUTRICE],
-  AFFIDATARIA: [SIC_ESECUTRICE, SIC_AFFIDATARIA],
-  SUBAPPALTATRICE: [SIC_SUBAPPALTATRICE],
-  DIREZIONE_LAVORI: [SIC_DL]
-};
-/* modello completo dell'iter per un ruolo: i passaggi fissi, con inseriti prima di "Cantiere" i
-   passaggi di sicurezza che spettano a quel ruolo. Usato sia per creare l'iter di una nuova
-   commessa, sia (tramite iterDisponibili) per "+ Aggiungi passaggio dal modello" su una
-   commessa esistente: nello stesso ordine, così un passaggio aggiunto dopo finisce nel posto
-   giusto rispetto agli altri, non sempre in fondo. */
-function iterModello(ruolo) {
-  const extra = SIC_PER_RUOLO[ruolo] || [];
+/* le quattro checklist di sicurezza non fanno parte dell'iter ordinario di una nuova commessa:
+   restano sempre disponibili come passaggi a sé, da aggiungere a mano con "+ Aggiungi
+   passaggio" nella scheda Iter di ogni commessa, scegliendo lì per quale ruolo (una, più di
+   una, o nessuna: dipende da come lavori in quella specifica commessa). */
+const SIC_TUTTE = [SIC_ESECUTRICE, SIC_AFFIDATARIA, SIC_SUBAPPALTATRICE, SIC_DL];
+function newIter() { return DEFAULT_ITER.map((s) => ({ codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t, done: false })) })); }
+/* tutti i passaggi che si possono aggiungere a una commessa con "+ Aggiungi passaggio":
+   quelli del modello base che non ha ancora, più le quattro checklist di sicurezza, inserite
+   nella stessa posizione (prima di "Cantiere") che avrebbero se facessero parte del modello,
+   così un passaggio aggiunto finisce nel posto giusto invece che sempre in fondo. */
+function iterDisponibili() {
   const base = DEFAULT_ITER.slice(), ins = base.findIndex((s) => s.codice === 'CANTIERE');
-  base.splice(ins < 0 ? base.length : ins, 0, ...extra);
+  base.splice(ins < 0 ? base.length : ins, 0, ...SIC_TUTTE);
   return base;
 }
-function newIter(ruolo) { return iterModello(ruolo).map((s) => ({ codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t, done: false })) })); }
-const iterDisponibili = (c) => iterModello(c && c.ruolo);
 function newFasi(tipi) {
   const out = [];
   (tipi || []).forEach((id) => { const t = G('tipiLavoro', id); if (!t) return; (t.fasiTemplate || []).forEach((f) => out.push({ nome: f.nome + (tipi.length > 1 ? ' (' + t.nome + ')' : ''), peso: f.peso || 1, voci: (f.voci || []).map((x) => ({ t: x, done: false })) })); });
@@ -730,7 +716,6 @@ function commessaFields() {
     { k: 'clienteId', l: 'Cliente', t: 'select', req: true, opts: D('clienti').sort(byStr((x) => x.ragioneSociale)).map((c) => [c.id, c.ragioneSociale]) },
     { k: 'titolo', l: 'Lavori (titolo)', req: true },
     { k: 'descrizione', l: 'Descrizione dei lavori', t: 'textarea' },
-    { k: 'ruolo', l: 'Ruolo della tua impresa in questa commessa', t: 'select', req: true, opts: RUOLI_COMMESSA, hint: 'Determina quale checklist di sicurezza viene proposta nell’iter.' },
     { k: 'tipiLavoro', l: 'Tipologie di lavoro', t: 'multi', opts: D('tipiLavoro').sort(byStr((x) => x.nome)).map((t) => [t.id, t.nome]) },
     { k: 'tipologiaCantiere', l: 'Tipologia di cantiere', t: 'select', half: true, opts: TIPI_CANTIERE },
     { k: 'responsabile', l: 'Responsabile commessa', half: true },
@@ -748,8 +733,8 @@ A.newC = () => {
   if (!D('clienti').length) { toast('Aggiungi prima almeno un cliente.', 'err'); go('clienti'); return; }
   openForm({
     title: 'Nuova commessa', wide: true, info: 'L\u2019iter (preventivo, conferma d\u2019ordine, POS, DICO…) e la checklist di cantiere si creano da soli in base alle tipologie scelte.',
-    fields: commessaFields(), values: { codice: nextCodice(), stato: 'OFFERTA', aliquotaIva: 22, ruolo: 'ESECUTRICE_ALLA_PARI' },
-    onSave: async (v) => { const id = newId('commesse'); await put('commesse', id, Object.assign({}, v, { iter: newIter(v.ruolo), fasi: newFasi(v.tipiLavoro), sicurezza: [], pagamenti: [], costi: [], creataIl: today() })); go('commessa', id, 'panoramica'); }
+    fields: commessaFields(), values: { codice: nextCodice(), stato: 'OFFERTA', aliquotaIva: 22 },
+    onSave: async (v) => { const id = newId('commesse'); await put('commesse', id, Object.assign({}, v, { iter: newIter(), fasi: newFasi(v.tipiLavoro), sicurezza: [], pagamenti: [], costi: [], creataIl: today() })); go('commessa', id, 'panoramica'); }
   });
 };
 A.editC = (d) => { const c = G('commesse', d.id); openForm({ title: 'Modifica commessa', wide: true, fields: commessaFields(), values: c, onSave: (v) => patch('commesse', c.id, v), onDelete: S.admin ? async () => { await remove('commesse', c.id); go('commesse'); } : null }); };
@@ -772,7 +757,7 @@ function tabPanoramica(c) {
   const tipi = (c.tipiLavoro || []).map((id) => (G('tipiLavoro', id) || {}).nome).filter(Boolean).map((n) => bd(n, 'teal')).join(' ');
   const strip = '<div class="iter">' + (c.iter || []).map((s) => { const col = { COMPLETATO: '#15803D', IN_CORSO: '#1E3A6E', IN_ATTESA: '#B45309' }[s.stato] || 'var(--ln)'; return '<div class="st"><i style="background:' + col + '"></i><b>' + esc(s.nome) + '</b>' + stBadge(STATI_STEP, s.stato) + '</div>'; }).join('') + '</div>';
   return '<div class="stack">' + card('Iter di commessa', '<div class="muted small">' + it[0] + ' di ' + it[1] + ' passaggi completati</div>' + strip, '<button class="btn sm" data-a="ctab" data-t="iter">Apri iter</button>') +
-    '<div class="grid g2"><div class="stack">' + card('Cliente e cantiere', '<div class="kv">' + kv('Cliente', esc(cl.ragioneSociale)) + kv('Referente', esc(cl.referente)) + kv('Luogo', esc([c.indirizzo, c.citta, c.provincia].filter(Boolean).join(', '))) + kv('Ruolo nella sicurezza', c.ruolo ? esc(lab(RUOLI_COMMESSA, c.ruolo)) : '<span class="muted">Da indicare</span>') + kv('Tipologia di cantiere', esc(c.tipologiaCantiere)) + kv('Tipologie di lavoro', tipi) + kv('Responsabile', esc(c.responsabile)) + kv('Inizio previsto', esc(fmtD(c.dataInizio))) + kv('Fine prevista', esc(fmtD(c.dataFine))) + '</div>') +
+    '<div class="grid g2"><div class="stack">' + card('Cliente e cantiere', '<div class="kv">' + kv('Cliente', esc(cl.ragioneSociale)) + kv('Referente', esc(cl.referente)) + kv('Luogo', esc([c.indirizzo, c.citta, c.provincia].filter(Boolean).join(', '))) + kv('Tipologia di cantiere', esc(c.tipologiaCantiere)) + kv('Tipologie di lavoro', tipi) + kv('Responsabile', esc(c.responsabile)) + kv('Inizio previsto', esc(fmtD(c.dataInizio))) + kv('Fine prevista', esc(fmtD(c.dataFine))) + '</div>') +
     card('Descrizione dei lavori', '<div style="white-space:pre-wrap">' + (esc(c.descrizione) || '<span class="muted">Nessuna descrizione.</span>') + '</div>') + '</div>' +
     '<div class="stack">' + card('Numeri', '<div class="kv">' + kv('Importo contratto', '<b>' + eur(c.importo) + '</b> + IVA ' + esc(c.aliquotaIva || 0) + '%') + kv('Incassato', '<b>' + eur(inc) + '</b>') + kv('Avanzamento cantiere', pctFasi(c) + '%') + kv('Margine attuale', eur(Number(c.importo) - costiC(c)) + ' <span class="muted small">(contratto meno costi registrati)</span>') + '</div>') +
     (c.note ? card('Note', '<div style="white-space:pre-wrap">' + esc(c.note) + '</div>') : '') + '</div></div></div>';
@@ -782,8 +767,8 @@ function tabPanoramica(c) {
 function tabIter(c) {
   const it = iterCount(c);
   const n = (c.iter || []).length;
-  const mancano = iterDisponibili(c).filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
-  const addBtn = mancano.length ? '<div style="margin-bottom:14px"><button class="btn sm" data-a="iterPassAdd" data-id="' + esc(c.id) + '">+ Aggiungi passaggio dal modello</button></div>' : '';
+  const mancano = iterDisponibili().filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
+  const addBtn = mancano.length ? '<div style="margin-bottom:14px"><button class="btn sm" data-a="iterPassAdd" data-id="' + esc(c.id) + '">+ Aggiungi passaggio</button></div>' : '';
   return '<div class="muted" style="margin-bottom:12px">' + it[0] + ' di ' + it[1] + ' passaggi completati. I passaggi contrassegnati come bloccanti condizionano planning e fatturazione.</div>' + addBtn + '<div class="stack">' + (c.iter || []).map((s, i) => {
     const done = (s.voci || []).filter((v) => v.done).length;
     return '<section class="card"><div class="ch"><div class="row"><span class="dot">' + (i + 1) + '</span><h3>' + esc(s.nome) + '</h3>' + (s.bloccante ? bd('Bloccante', 'dark') : '') + '<span class="small muted">' + done + '/' + (s.voci || []).length + ' voci</span></div><div class="row"><button class="btn sm" data-a="iterPassUp" data-id="' + esc(c.id) + '" data-i="' + i + '" aria-label="Sposta su"' + (!i ? ' disabled' : '') + '>↑</button><button class="btn sm" data-a="iterPassDown" data-id="' + esc(c.id) + '" data-i="' + i + '" aria-label="Sposta giù"' + (i === n - 1 ? ' disabled' : '') + '>↓</button><select data-c="iterStato" data-id="' + esc(c.id) + '" data-i="' + i + '" aria-label="Stato di ' + esc(s.nome) + '" style="width:auto">' + STATI_STEP.map((x) => '<option value="' + x[0] + '"' + (s.stato === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>').join('') + '</select><button class="btn sm" data-a="iterEdit" data-id="' + esc(c.id) + '" data-i="' + i + '">Dettagli</button></div></div>' +
@@ -823,10 +808,10 @@ A.iterPassDown = (d) => iterPassMove(d, 1);
    passaggio introdotto in Personalizza dopo la creazione della commessa), inserendolo nella
    posizione che ha nel modello rispetto ai passaggi già presenti, non sempre in fondo */
 A.iterPassAdd = (d) => {
-  const c = G('commesse', d.id), disp = iterDisponibili(c), mancano = disp.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
+  const c = G('commesse', d.id), disp = iterDisponibili(), mancano = disp.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
   if (!mancano.length) return;
   openForm({
-    title: 'Aggiungi passaggio dal modello', fields: [{ k: 'codice', l: 'Passaggio', t: 'select', req: true, opts: mancano.map((s) => [s.codice, s.nome]) }],
+    title: 'Aggiungi passaggio', fields: [{ k: 'codice', l: 'Passaggio', t: 'select', req: true, opts: mancano.map((s) => [s.codice, s.nome]) }],
     onSave: async (v) => {
       const s = disp.find((x) => x.codice === v.codice); if (!s) return;
       const nuovo = { codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t: t, done: false })) };
@@ -1803,7 +1788,9 @@ const saveIter = (steps) => put('impostazioni', 'iter', { steps: steps });
 function edIter() {
   const n = DEFAULT_ITER.length, b = (a, i, t, cls, dis) => '<button class="btn sm' + (cls || '') + '" data-a="' + a + '" data-i="' + i + '"' + (dis ? ' disabled' : '') + '>' + t + '</button>';
   const t = tbl([{ h: '#', f: (s, i) => String(i + 1) }, { h: 'Passaggio', f: (s) => '<b>' + esc(s.nome) + '</b>' + (s.bloccante ? ' ' + bd('Bloccante', 'dark') : '') + (ITER_FISSI.includes(s.codice) ? ' ' + bd('Regola di sistema', 'grey') : '') }, { h: 'Checklist', f: (s) => (s.voci || []).length + ' voci' }, { h: '', r: true, f: (s, i) => '<span class="row end">' + b('itUp', i, '↑', '', !i) + b('itDown', i, '↓', '', i === n - 1) + b('itEdit', i, 'Modifica') + (ITER_FISSI.includes(s.codice) ? '' : b('itDel', i, 'Elimina', ' d')) + '</span>' }], DEFAULT_ITER, { empty: 'Nessun passaggio.' });
-  return card('Iter delle nuove commesse', '<p class="muted small" style="margin:0 0 10px">Il modello vale per le commesse che crei da ora: quelle già create mantengono il loro iter e si modificano dalla loro scheda. I passaggi «di sistema» hanno regole fisse (conferma d\u2019ordine per il planning, POS e conferma per il cantiere, DICO per la fattura di saldo): si possono rinominare e cambiare ma non eliminare.</p>' + t, '<button class="btn sm" data-a="itReset">Ripristina modello iniziale</button><button class="btn p sm" data-a="itNew">+ Passaggio</button>');
+  const sic = tbl([{ h: 'Checklist di sicurezza', f: (s) => '<b>' + esc(s.nome) + '</b>' }, { h: 'Voci', r: true, f: (s) => (s.voci || []).length }], SIC_TUTTE, { empty: 'Nessuna.' });
+  return card('Iter delle nuove commesse', '<p class="muted small" style="margin:0 0 10px">Il modello vale per le commesse che crei da ora: quelle già create mantengono il loro iter e si modificano dalla loro scheda. I passaggi «di sistema» hanno regole fisse (conferma d\u2019ordine per il planning, POS e conferma per il cantiere, DICO per la fattura di saldo): si possono rinominare e cambiare ma non eliminare.</p>' + t, '<button class="btn sm" data-a="itReset">Ripristina modello iniziale</button><button class="btn p sm" data-a="itNew">+ Passaggio</button>') +
+    card('Checklist di sicurezza per ruolo', '<p class="muted small" style="margin:0 0 10px">Non fanno parte dell\u2019iter ordinario di una nuova commessa: si aggiungono a mano, una o più di una, dalla scheda Iter di ogni singola commessa con «+ Aggiungi passaggio» — l\u00ec scegli quale ruolo (impresa esecutrice, affidataria, subappaltatrice o Direzione Lavori) ha quella specifica commessa.</p>' + sic);
 }
 function itForm(i) {
   const cur = i == null ? null : DEFAULT_ITER[i];
