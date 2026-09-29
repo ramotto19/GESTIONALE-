@@ -1165,8 +1165,8 @@ const tuttiDoc = () => D('documenti').concat(S.admin ? D('riservato').filter((x)
 const colDoc = (x) => (x.kind === 'doc' && G('riservato', x.id) ? 'riservato' : 'documenti');
 function catOpts() { return D('categorie').filter((c) => c.parentId).filter((c) => S.admin || !catRiservata(c.id)).sort(byStr((c) => catPath(c.id))).map((c) => [c.id, catPath(c.id)]); }
 function vDocumentale() {
-  const roots = D('categorie').filter((c) => !c.parentId).sort((a, b) => (a.ordine || 0) - (b.ordine || 0));
-  const figli = (id) => D('categorie').filter((c) => c.parentId === id).sort((a, b) => (a.ordine || 0) - (b.ordine || 0));
+  const roots = D('categorie').filter((c) => !c.parentId).sort(byStr((c) => c.nome));
+  const figli = (id) => D('categorie').filter((c) => c.parentId === id).sort(byStr((c) => c.nome));
   const docs = tuttiDoc();
   const setSel = (id) => { const s = new Set([id]); figli(id).forEach((c) => s.add(c.id)); return s; };
   const cnt = (id) => { const s = setSel(id); return docs.filter((x) => s.has(x.categoriaId)).length; };
@@ -1776,17 +1776,16 @@ A.regDelPage = async (d) => {
 };
 
 /* ---------- editor: categorie dei documenti ---------- */
-const ordC = (a, b) => (a.ordine || 0) - (b.ordine || 0) || String(a.nome).localeCompare(String(b.nome), 'it');
 function edCategorie() {
-  const roots = D('categorie').filter((c) => !c.parentId).sort(ordC);
-  const btn = (a, id, t, dis) => '<button class="btn sm" data-a="' + a + '" data-id="' + esc(id) + '"' + (dis ? ' disabled' : '') + '>' + t + '</button>';
-  const row = (c, lv, i, n) => '<div class="blk" style="padding-left:' + (lv ? 28 : 0) + 'px"><div style="flex:1">' + (lv ? '' : '<b>') + esc(c.nome) + (lv ? '' : '</b>') + (c.riservato ? ' ' + bd('Riservata', 'dark') : '') + '</div><span class="row">' + btn('catUp', c.id, '↑', !i) + btn('catDown', c.id, '↓', i === n - 1) + btn('catEdit', c.id, 'Modifica') + (lv ? '' : '<button class="btn sm" data-a="catNew" data-p="' + esc(c.id) + '">+ Sottocategoria</button>') + '</span></div>';
-  const rows = roots.map((r, i) => { const f = D('categorie').filter((c) => c.parentId === r.id).sort(ordC); return row(r, 0, i, roots.length) + f.map((c, j) => row(c, 1, j, f.length)).join('') + (f.length ? '' : '<div class="small muted" style="padding:0 0 8px 28px">Nessuna sottocategoria: i documenti si archiviano nelle sottocategorie.</div>'); }).join('');
-  return card('Categorie dei documenti', '<p class="muted small" style="margin:0 0 6px">Due livelli: categoria e sottocategorie. I documenti si salvano nelle sottocategorie. Una categoria «riservata» rende riservate anche le sue sottocategorie.</p>' + (rows || '<div class="empty">Nessuna categoria.</div>'), '<button class="btn p sm" data-a="catNew" data-p="">+ Categoria</button>');
+  const roots = D('categorie').filter((c) => !c.parentId).sort(byStr((c) => c.nome));
+  const btn = (a, id, t) => '<button class="btn sm" data-a="' + a + '" data-id="' + esc(id) + '">' + t + '</button>';
+  const row = (c, lv) => '<div class="blk" style="padding-left:' + (lv ? 28 : 0) + 'px"><div style="flex:1">' + (lv ? '' : '<b>') + esc(c.nome) + (lv ? '' : '</b>') + (c.riservato ? ' ' + bd('Riservata', 'dark') : '') + '</div><span class="row">' + btn('catEdit', c.id, 'Modifica') + (lv ? '' : '<button class="btn sm" data-a="catNew" data-p="' + esc(c.id) + '">+ Sottocategoria</button>') + '</span></div>';
+  const rows = roots.map((r) => { const f = D('categorie').filter((c) => c.parentId === r.id).sort(byStr((c) => c.nome)); return row(r, 0) + f.map((c) => row(c, 1)).join('') + (f.length ? '' : '<div class="small muted" style="padding:0 0 8px 28px">Nessuna sottocategoria: i documenti si archiviano nelle sottocategorie.</div>'); }).join('');
+  return card('Categorie dei documenti', '<p class="muted small" style="margin:0 0 6px">Due livelli: categoria e sottocategorie, ordinate alfabeticamente. I documenti si salvano nelle sottocategorie. Una categoria «riservata» rende riservate anche le sue sottocategorie.</p>' + (rows || '<div class="empty">Nessuna categoria.</div>'), '<button class="btn p sm" data-a="catNew" data-p="">+ Categoria</button>');
 }
 A.catNew = (d) => {
   const p = d.p || '';
-  openForm({ title: p ? 'Nuova sottocategoria di ' + G('categorie', p).nome : 'Nuova categoria', fields: [{ k: 'nome', l: 'Nome', req: true }, { k: 'riservato', l: 'Riservata (visibile solo agli amministratori)', t: 'checkbox' }], values: {}, onSave: async (v) => { const sib = D('categorie').filter((c) => (c.parentId || '') === p); await put('categorie', 'cat-' + uniq(slug(v.nome), D('categorie').map((c) => c.id.replace(/^cat-/, ''))), { nome: v.nome, ordine: sib.length ? Math.max(...sib.map((c) => c.ordine || 0)) + 1 : 1, parentId: p || null, riservato: !!v.riservato }); } });
+  openForm({ title: p ? 'Nuova sottocategoria di ' + G('categorie', p).nome : 'Nuova categoria', fields: [{ k: 'nome', l: 'Nome', req: true }, { k: 'riservato', l: 'Riservata (visibile solo agli amministratori)', t: 'checkbox' }], values: {}, onSave: async (v) => { await put('categorie', 'cat-' + uniq(slug(v.nome), D('categorie').map((c) => c.id.replace(/^cat-/, ''))), { nome: v.nome, parentId: p || null, riservato: !!v.riservato }); } });
 };
 A.catEdit = (d) => {
   const c = G('categorie', d.id); if (!c) return;
@@ -1800,15 +1799,6 @@ A.catEdit = (d) => {
     }
   });
 };
-async function catMove(d, n) {
-  const c = G('categorie', d.id); if (!c) return;
-  const sib = D('categorie').filter((x) => (x.parentId || '') === (c.parentId || '')).sort(ordC), i = sib.findIndex((x) => x.id === c.id), j = i + n;
-  if (j < 0 || j >= sib.length) return;
-  const t = sib[i]; sib[i] = sib[j]; sib[j] = t;
-  try { for (let k = 0; k < sib.length; k++) if ((sib[k].ordine || 0) !== k + 1) await patch('categorie', sib[k].id, { ordine: k + 1 }); } catch (e) { /* già segnalato */ }
-}
-A.catUp = (d) => catMove(d, -1);
-A.catDown = (d) => catMove(d, 1);
 
 /* ---------- editor: iter di commessa ---------- */
 const ITER_FISSI = ['CONFERMA_ORDINE', 'CANTIERE', 'DICO', 'FATTURA_SALDO'];
