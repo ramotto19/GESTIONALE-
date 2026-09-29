@@ -2146,7 +2146,35 @@ function subscribe(col) {
     S.data[col] = m; S.loaded[col] = true; if (col === 'impostazioni') applyConfig(); queueRender();
     if (['commesse', 'commesseElenco', 'clienti', 'assegnazioni', 'assegnazioniG', 'squadre', 'accessi'].includes(col)) maybeSync();
     if (col === 'accessi') { resolveProf(); if (S.route === 'ore' && !S.oreLoading) loadAllOre(S.mese || meseOggi(), true); }
+    if (col === 'categorie') seedCategorieDefault();
   }, (err) => { console.warn('db', col, err); S.data[col] = S.data[col] || {}; S.loaded[col] = true; queueRender(); });
+}
+/* la prima volta che l'amministratore arriva su Documentale senza aver ancora creato nessuna
+   categoria, gliene propone alcune di base (con sottocategorie, dove si archiviano davvero i
+   documenti) così può iniziare subito a caricare file invece di dover prima configurare tutto
+   da Personalizza. Scatta una sola volta: appena esiste anche una sola categoria non si ripete. */
+const DEFAULT_CATEGORIE = [
+  { nome: 'Sicurezza', figli: ['Procedure e istruzioni di sicurezza', 'DPI e schede tecniche', 'Formazione e corsi'] },
+  { nome: 'Mezzi e attrezzature', figli: ['Libretti e manuali', 'Manutenzioni e verifiche'] },
+  { nome: 'Certificazioni', figli: ['Certificazioni di prodotto', 'Certificazioni di sistema (ISO…)'] },
+  { nome: 'Sostenibilità', figli: ['Politiche e report', 'Gestione rifiuti'] },
+  { nome: 'Altri documenti', figli: ['Altro'] }
+];
+let categorieSeeding = false;
+async function seedCategorieDefault() {
+  if (!S.admin || !db || categorieSeeding || D('categorie').length) return;
+  categorieSeeding = true;
+  try {
+    let ord = 1;
+    for (const r of DEFAULT_CATEGORIE) {
+      const rid = 'cat-' + slug(r.nome);
+      await db.doc('categorie/' + rid).set({ nome: r.nome, parentId: null, ordine: ord++ });
+      let ordC = 1;
+      for (const f of r.figli) { await db.doc('categorie/cat-' + slug(f)).set({ nome: f, parentId: rid, ordine: ordC++ }); }
+    }
+    toast('Ho creato alcune categorie di base in Documentale: puoi già iniziare a caricare i documenti (le puoi rinominare o cambiare da Personalizza → Categorie documenti).');
+  } catch (e) { /* se qualcosa fallisce a metà, riprova al prossimo caricamento della pagina */ }
+  finally { categorieSeeding = false; }
 }
 function subscribeUser() {
   if (S.uid) {
