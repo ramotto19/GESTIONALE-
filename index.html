@@ -323,7 +323,7 @@ const TIPI_CANTIERE = ['Civile', 'Industriale', 'Commerciale', 'Pubblico', 'Resi
 const STATI_STEP = [['DA_FARE', 'Da fare', 'grey'], ['IN_CORSO', 'In corso', 'blue'], ['IN_ATTESA', 'In attesa', 'amber'], ['COMPLETATO', 'Fatto', 'green'], ['NON_APPLICABILE', 'Non applicabile', 'grey']];
 const TIPI_AB = [['FORMAZIONE_GENERALE', 'Formazione generale', null], ['FORMAZIONE_SPECIFICA', 'Formazione specifica', 60], ['AGGIORNAMENTO_SICUREZZA', 'Aggiornamento sicurezza', 60], ['IDONEITA_SANITARIA', 'Idoneità sanitaria', 12], ['PES_PAV_PEI', 'PES / PAV / PEI', 60], ['LAVORI_IN_QUOTA', 'Lavori in quota', 60], ['PLE', 'Uso PLE / cestello', 60], ['ANTINCENDIO', 'Antincendio (addetti)', 60], ['PRIMO_SOCCORSO', 'Primo soccorso', 36], ['FGAS', 'F-gas (personale)', null], ['SPAZI_CONFINATI', 'Spazi confinati', 60], ['ALTRO', 'Altro', null]];
 const TIPI_DOC_AZ = [['DURC', 'DURC', null], ['VISURA_CAMERALE', 'Visura camerale', null], ['ABILITAZIONE_INSTALLATORE', 'Abilitazione installatore (DM 37/08)', null], ['CERTIFICAZIONE_FGAS', 'Certificazione F-gas impresa', null], ['ATTESTAZIONE_SOA', 'Attestazione SOA', null], ['CERTIFICAZIONE_ISO', 'Certificazione ISO', null], ['ISCRIZIONE_ALBO', 'Iscrizione ad albo', null], ['ATTESTAZIONE_ANTINCENDIO', 'Attestazione antincendio', null], ['PATENTE_CREDITI', 'Patente a crediti', null], ['DVR', 'DVR - valutazione dei rischi', null], ['NOMINA_RSPP', 'Nomina RSPP', null], ['MEDICO_COMPETENTE', 'Nomina medico competente', null], ['NOMINA_PRIMO_SOCCORSO', 'Nomina addetti primo soccorso', null], ['NOMINA_ANTINCENDIO', 'Nomina addetti antincendio', null], ['NOMINA_RLS', 'Elezione/designazione RLS', null], ['CCNL_ORGANICO', 'CCNL applicato e organico medio annuo', null], ['ALTRO', 'Altro', null]];
-const TIPI_SIC = [['POS', 'POS'], ['DVR', 'DVR'], ['DUVRI', 'DUVRI'], ['PSC', 'PSC'], ['PRESA_VISIONE_PSC', 'Presa visione PSC firmata'], ['NOTIFICA_PRELIMINARE', 'Notifica preliminare'], ['VERBALE_COORDINAMENTO', 'Verbale di coordinamento'], ['CONSEGNA_POS_CSE', 'Ricevuta consegna POS al CSE'], ['NOMINA_DIRETTORE_PREPOSTO', 'Nomina direttore tecnico di cantiere e preposto'], ['CONSULTAZIONE_RLS', 'Verbale consultazione RLS'], ['IDONEITA_TECNICO_PROF', 'Idoneità tecnico-professionale (visura, DURC, DVR, elenco lavoratori e attrezzature)'], ['FASCICOLO_OPERA', 'Documenti per il Fascicolo dell’opera'], ['ALTRO', 'Altro']];
+const TIPI_SIC = [['POS', 'POS'], ['DVR', 'DVR'], ['DUVRI', 'DUVRI'], ['PSC', 'PSC'], ['PRESA_VISIONE_PSC', 'Presa visione PSC firmata'], ['NOTIFICA_PRELIMINARE', 'Notifica preliminare'], ['VERBALE_COORDINAMENTO', 'Verbale di coordinamento'], ['CONSEGNA_POS_CSE', 'Ricevuta consegna POS al CSE'], ['NOMINA_DIRETTORE_PREPOSTO', 'Nomina direttore tecnico di cantiere e preposto'], ['CONSULTAZIONE_RLS', 'Verbale consultazione RLS'], ['IDONEITA_TECNICO_PROF', 'Idoneità tecnico-professionale (visura, DURC, DVR, elenco lavoratori e attrezzature)'], ['FASCICOLO_OPERA', 'Documenti per il Fascicolo dell’opera'], ['CONTRATTO_SUBAPPALTO', 'Contratto di subappalto'], ['COMUNICAZIONE_SUBAPPALTATORI', 'Comunicazione nominativi subappaltatori/autonomi'], ['INCARICO_DL', 'Incarico di direzione lavori'], ['TITOLO_EDILIZIO', 'Titolo edilizio (CILA/SCIA/permesso)'], ['COMUNICAZIONE_FINE_LAVORI', 'Comunicazione fine lavori / relazione DL'], ['CERTIFICATO_REGOLARE_ESECUZIONE', 'Certificato di regolare esecuzione / collaudo DL'], ['ALTRO', 'Altro']];
 const STATI_SIC = [['DA_REDIGERE', 'Da redigere', 'grey'], ['IN_REVISIONE', 'In revisione', 'amber'], ['APPROVATO', 'Approvato', 'green'], ['SCADUTO', 'Scaduto', 'red']];
 const TIPI_PAG = [['ACCONTO', 'Acconto'], ['SAL', 'SAL'], ['SALDO', 'Saldo'], ['ALTRO', 'Altro']];
 const STATI_PAG = [['PREVISTO', 'Previsto', 'grey'], ['PARZIALE', 'Parziale', 'amber'], ['INCASSATO', 'Incassato', 'green'], ['IN_RITARDO', 'In ritardo', 'red']];
@@ -343,53 +343,195 @@ const DEFAULT_ITER = [
   { codice: 'POS', nome: 'POS e sicurezza', bloccante: true, voci: ['Dati impresa e nominativi', 'Valutazione dei rischi', 'Piano di emergenza e primo soccorso', 'Idoneità e formazione della squadra', 'Firma del responsabile'] },
   { codice: 'PROGETTO', nome: 'Progetto', voci: ['Progetto esecutivo', 'Approvazione del cliente', 'Pratiche con gli enti (se richieste)'] },
   { codice: 'MATERIALI', nome: 'Materiali', voci: ['Ordini ai fornitori', 'Consegna in cantiere'] },
-  { codice: 'SICUREZZA_ALLAPARI', nome: 'Sicurezza cantiere (impresa alla pari)', voci: [
-    '[Prima di entrare in cantiere] Ricevuto e letto il PSC, con presa visione firmata',
-    '[Prima di entrare in cantiere] Nominativi di committente, CSE, direttore lavori e delle altre imprese, con contatti',
-    '[Prima di entrare in cantiere] POS del tuo cantiere, non copiato da un altro, coerente con PSC e cronoprogramma',
-    '[Prima di entrare in cantiere] POS consegnato al CSE prima dell’inizio, con la ricevuta',
-    '[Prima di entrare in cantiere] RLS consultato sul PSC e sul POS prima di accettarli, e sulle modifiche importanti',
-    '[Prima di entrare in cantiere] Eventuali proposte di integrazione al PSC presentate al CSE (senza variazioni di prezzo)',
-    '[Prima di entrare in cantiere] Documenti di idoneità tecnico-professionale consegnati al committente: visura, DURC, DVR, POS, elenco lavoratori con attestati e idoneità, elenco attrezzature',
-    '[Prima di entrare in cantiere] Nomina del direttore tecnico di cantiere e del preposto',
-    '[Prima di entrare in cantiere] Verifica con il committente che notifica preliminare e nomine di CSP/CSE siano fatte',
-    '[Persone e formazione] Tessera di riconoscimento per ogni lavoratore, con il codice anticontraffazione',
-    '[Persone e formazione] Formazione generale e specifica edile in corso di validità',
-    '[Persone e formazione] Preposto formato',
-    '[Persone e formazione] Lavori elettrici: personale abilitato (PES/PAV)',
-    '[Persone e formazione] Lavori in quota: DPI anticaduta e addestramento',
-    '[Persone e formazione] Operatori di PLE, carrelli, gru e macchine: abilitazioni specifiche',
-    '[Persone e formazione] Primo soccorso e antincendio: addetti presenti in cantiere',
-    '[Attrezzature e DPI] DPI consegnati con firma di ricevuta',
-    '[Attrezzature e DPI] Libretti e verifiche periodiche di attrezzature, PLE e ponteggi',
-    '[Attrezzature e DPI] Marcatura CE e manuali delle macchine',
-    '[Attrezzature e DPI] Quadri elettrici mobili a norma e protetti',
-    '[Attrezzature e DPI] Ponteggi o opere provvisionali di altri: verificati, controllati e autorizzati dal CSE',
-    '[Coordinamento con le altre imprese] Partecipazione alle riunioni del CSE e firma dei verbali',
-    '[Coordinamento con le altre imprese] Cronoprogramma condiviso: chi lavora dove, quando, con quali mezzi',
-    '[Coordinamento con le altre imprese] Interferenze censite: lavori sopra o sotto altri, carichi sospesi, polveri, rumore, passaggi',
-    '[Coordinamento con le altre imprese] Impianti e opere comuni (illuminazione, quadri generali, ponteggi, gru): chi le fornisce, chi le verifica, regole d’uso',
-    '[Coordinamento con le altre imprese] Segnaletica e delimitazioni concordate, senza spostare o rimuovere quelle altrui',
-    '[Coordinamento con le altre imprese] Per impianti: prima di mettere in tensione, provare, collaudare o pressurizzare, avvisa CSE e imprese e libera la zona',
-    '[Coordinamento con le altre imprese] Procedura di sezionamento e blocco per interventi su impianti in servizio',
-    '[Coordinamento con le altre imprese] Autorizzazioni per zone tecniche: chiavi, permessi di lavoro',
-    '[Durante i lavori] Preposto presente e sorveglianza attiva',
-    '[Durante i lavori] Controllo giornaliero di ponteggi, quadri, attrezzature, ordine e pulizia',
-    '[Durante i lavori] Ogni nuova persona, mezzo o lavorazione: documenti verificati, POS aggiornato, avviso al CSE prima di iniziare',
-    '[Durante i lavori] Infortuni e quasi-infortuni comunicati al CSE',
-    '[Durante i lavori] Prescrizioni o sospensioni del CSE rispettate e documentate',
-    '[Fine lavori] Dichiarazione di conformità dell’impianto con allegati obbligatori',
-    '[Fine lavori] Manuali, schemi e istruzioni d’uso consegnati',
-    '[Fine lavori] Documenti per il Fascicolo dell’opera consegnati al CSE',
-    '[Fine lavori] Smontaggio ordinato delle tue opere provvisionali e dei quadri di cantiere',
-    '[Fine lavori] Archiviazione della documentazione di commessa'
-  ] },
   { codice: 'CANTIERE', nome: 'Cantiere', voci: ['Avvio lavori', 'Stato avanzamento lavori', 'Fine lavori'] },
   { codice: 'COLLAUDO', nome: 'Collaudo', voci: ['Verifiche e misure', 'Verbale di collaudo'] },
   { codice: 'DICO', nome: 'DICO', bloccante: true, voci: ['Schemi e planimetrie as built', 'Certificazioni dei materiali', 'Verifiche e misure di collaudo', 'Dichiarazione di conformità firmata', 'Allegati obbligatori'] },
   { codice: 'FATTURA_SALDO', nome: 'Fattura di saldo', voci: ['Emissione fattura', 'Incasso del saldo', 'Chiusura pratica'] }
 ];
-const newIter = () => DEFAULT_ITER.map((s) => ({ codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t, done: false })) }));
+/* ruolo della tua impresa in una specifica commessa: determina quale checklist di sicurezza
+   viene proposta nell'iter (vedi SIC_PER_RUOLO più sotto). "Impresa esecutrice con contratto
+   diretto" ed "esecutrice alla pari" sono la stessa cosa: nessun subappalto di mezzo, contratto
+   diretto col committente, coordinati da CSE e committente. */
+const RUOLI_COMMESSA = [
+  ['ESECUTRICE_ALLA_PARI', 'Impresa esecutrice con contratto diretto (alla pari)'],
+  ['AFFIDATARIA', 'Impresa affidataria'],
+  ['SUBAPPALTATRICE', 'Impresa subappaltatrice'],
+  ['DIREZIONE_LAVORI', 'Direzione Lavori']
+];
+const SIC_ESECUTRICE = { codice: 'SICUREZZA_ALLAPARI', nome: 'Sicurezza cantiere (impresa esecutrice)', voci: [
+  '[Prima di entrare in cantiere] Ricevuto e letto il PSC, con presa visione firmata',
+  '[Prima di entrare in cantiere] Nominativi di committente, CSE, direttore lavori e delle altre imprese, con contatti',
+  '[Prima di entrare in cantiere] POS del tuo cantiere, non copiato da un altro, coerente con PSC e cronoprogramma',
+  '[Prima di entrare in cantiere] POS consegnato al CSE prima dell’inizio, con la ricevuta',
+  '[Prima di entrare in cantiere] RLS consultato sul PSC e sul POS prima di accettarli, e sulle modifiche importanti',
+  '[Prima di entrare in cantiere] Eventuali proposte di integrazione al PSC presentate al CSE (senza variazioni di prezzo)',
+  '[Prima di entrare in cantiere] Documenti di idoneità tecnico-professionale consegnati al committente: visura, DURC, DVR, POS, elenco lavoratori con attestati e idoneità, elenco attrezzature',
+  '[Prima di entrare in cantiere] Nomina del direttore tecnico di cantiere e del preposto',
+  '[Prima di entrare in cantiere] Verifica con il committente che notifica preliminare e nomine di CSP/CSE siano fatte',
+  '[Persone e formazione] Tessera di riconoscimento per ogni lavoratore, con il codice anticontraffazione',
+  '[Persone e formazione] Formazione generale e specifica edile in corso di validità',
+  '[Persone e formazione] Preposto formato',
+  '[Persone e formazione] Lavori elettrici: personale abilitato (PES/PAV)',
+  '[Persone e formazione] Lavori in quota: DPI anticaduta e addestramento',
+  '[Persone e formazione] Operatori di PLE, carrelli, gru e macchine: abilitazioni specifiche',
+  '[Persone e formazione] Primo soccorso e antincendio: addetti presenti in cantiere',
+  '[Attrezzature e DPI] DPI consegnati con firma di ricevuta',
+  '[Attrezzature e DPI] Libretti e verifiche periodiche di attrezzature, PLE e ponteggi',
+  '[Attrezzature e DPI] Marcatura CE e manuali delle macchine',
+  '[Attrezzature e DPI] Quadri elettrici mobili a norma e protetti',
+  '[Attrezzature e DPI] Ponteggi o opere provvisionali di altri: verificati, controllati e autorizzati dal CSE',
+  '[Coordinamento con le altre imprese] Partecipazione alle riunioni del CSE e firma dei verbali',
+  '[Coordinamento con le altre imprese] Cronoprogramma condiviso: chi lavora dove, quando, con quali mezzi',
+  '[Coordinamento con le altre imprese] Interferenze censite: lavori sopra o sotto altri, carichi sospesi, polveri, rumore, passaggi',
+  '[Coordinamento con le altre imprese] Impianti e opere comuni (illuminazione, quadri generali, ponteggi, gru): chi le fornisce, chi le verifica, regole d’uso',
+  '[Coordinamento con le altre imprese] Segnaletica e delimitazioni concordate, senza spostare o rimuovere quelle altrui',
+  '[Coordinamento con le altre imprese] Per impianti: prima di mettere in tensione, provare, collaudare o pressurizzare, avvisa CSE e imprese e libera la zona',
+  '[Coordinamento con le altre imprese] Procedura di sezionamento e blocco per interventi su impianti in servizio',
+  '[Coordinamento con le altre imprese] Autorizzazioni per zone tecniche: chiavi, permessi di lavoro',
+  '[Durante i lavori] Preposto presente e sorveglianza attiva',
+  '[Durante i lavori] Controllo giornaliero di ponteggi, quadri, attrezzature, ordine e pulizia',
+  '[Durante i lavori] Ogni nuova persona, mezzo o lavorazione: documenti verificati, POS aggiornato, avviso al CSE prima di iniziare',
+  '[Durante i lavori] Infortuni e quasi-infortuni comunicati al CSE',
+  '[Durante i lavori] Prescrizioni o sospensioni del CSE rispettate e documentate',
+  '[Fine lavori] Dichiarazione di conformità dell’impianto con allegati obbligatori',
+  '[Fine lavori] Manuali, schemi e istruzioni d’uso consegnati',
+  '[Fine lavori] Documenti per il Fascicolo dell’opera consegnati al CSE',
+  '[Fine lavori] Smontaggio ordinato delle tue opere provvisionali e dei quadri di cantiere',
+  '[Fine lavori] Archiviazione della documentazione di commessa'
+] };
+/* obblighi IN PIÙ rispetto a SIC_ESECUTRICE: le due checklist vengono aggiunte entrambe a una
+   commessa dove sei affidataria (vedi SIC_PER_RUOLO) */
+const SIC_AFFIDATARIA = { codice: 'SICUREZZA_AFFIDATARIA', nome: 'Sicurezza cantiere (impresa affidataria) — obblighi in più', voci: [
+  '[Prima di affidare i lavori] Verifica di idoneità tecnico-professionale di ogni subappaltatore e autonomo: visura, DURC, DVR, elenco lavoratori con formazione e idoneità sanitarie, attrezzature, nomine',
+  '[Prima di affidare i lavori] Patente a crediti dei subappaltatori con almeno 15 crediti (o documento equivalente, come la SOA in classifica adeguata), controllata prima dell’ingresso e ricontrollata se cambiano le condizioni',
+  '[Prima di affidare i lavori] Contratto di subappalto scritto, con autorizzazione del committente se richiesta, costi della sicurezza indicati e non ridotti',
+  '[Prima di affidare i lavori] Clausole sull’obbligo di rispettare PSC, POS e le tue disposizioni, con penali o diritto di allontanamento in caso di violazioni',
+  '[Prima di affidare i lavori] Dichiarazione dei subappaltatori su contratto collettivo applicato e organico medio annuo',
+  '[Prima di affidare i lavori] Comunicazione al committente e al CSE dei nominativi dei subappaltatori e dei lavoratori autonomi',
+  '[Trasmissione dei documenti] PSC e Fascicolo ricevuti dal committente e trasmessi alle imprese esecutrici e agli autonomi prima dell’inizio, con ricevuta di presa visione',
+  '[Trasmissione dei documenti] POS di ogni subappaltatore ricevuto',
+  '[Trasmissione dei documenti] Congruenza dei POS verificata con il tuo e con il PSC, prima di passarli al CSE',
+  '[Trasmissione dei documenti] POS trasmessi al CSE con protocollo o ricevuta',
+  '[Trasmissione dei documenti] Nessuno fatto iniziare finché il POS non è verificato e trasmesso',
+  '[Figure di coordinamento] Direttore tecnico di cantiere nominato (tuo dipendente)',
+  '[Figure di coordinamento] Preposto/i nominati, con formazione da preposto in corso di validità, per la sorveglianza sul campo',
+  '[Figure di coordinamento] Nominativo della figura di riferimento comunicato a committente e CSE (verifica il testo vigente con il tuo RSPP: la norma è cambiata di recente)',
+  '[Figure di coordinamento] Rapporti chiari con RSPP, RLS e medico competente per l’intero cantiere',
+  '[Coordinamento tra le imprese sotto di te] Cooperazione e informazione reciproca tra le tue imprese: chi fa cosa, dove e quando',
+  '[Coordinamento tra le imprese sotto di te] Cronoprogramma condiviso e aggiornato quando cambiano le lavorazioni',
+  '[Coordinamento tra le imprese sotto di te] Interferenze analizzate: lavori sopra o sotto altri, carichi sospesi, tensione, polveri, rumore',
+  '[Coordinamento tra le imprese sotto di te] Impianti e apprestamenti comuni (ponteggi, quadri, illuminazione, gru): chi li fornisce, chi li verifica, regole d’uso',
+  '[Coordinamento tra le imprese sotto di te] Riunioni di coordinamento con i subappaltatori prima e dopo quelle del CSE, con verbale',
+  '[Coordinamento tra le imprese sotto di te] Procedure di emergenza comuni: vie di fuga, punti di raccolta, addetti, numeri utili',
+  '[Controllo di persone e accessi] Tessera di riconoscimento per ogni lavoratore dei subappaltatori e per gli autonomi, con codice anticontraffazione',
+  '[Controllo di persone e accessi] Registro presenze o accessi aggiornato ogni giorno',
+  '[Controllo di persone e accessi] Nessun nuovo lavoratore, mezzo o subappaltatore senza documenti verificati e avviso al CSE',
+  '[Controllo di persone e accessi] Formazione e idoneità dei lavoratori altrui controllate a campione e a ogni ingresso',
+  '[Controllo di persone e accessi] Regolarità contrattuale verificata (dal 2026 ogni lavoratore in nero fa perdere 5 crediti alla patente)',
+  '[Durante i lavori] Verifica periodica delle condizioni di sicurezza dei lavori affidati, documentata (verbali, foto, liste di controllo)',
+  '[Durante i lavori] Sopralluoghi del direttore tecnico e dei preposti, anche a sorpresa',
+  '[Durante i lavori] Non conformità registrate, comunicate al subappaltatore e chiuse (se non le chiude, informa il CSE)',
+  '[Durante i lavori] Sospensione dei lavori o allontanamento del subappaltatore quando c’è pericolo grave, con avviso al CSE',
+  '[Durante i lavori] POS e documentazione aggiornati per varianti, nuovi subappalti, cambi di mezzi',
+  '[Durante i lavori] DURC e patente dei subappaltatori verificati alle scadenze',
+  '[Durante i lavori] Infortuni e quasi-infortuni dei subappaltatori gestiti e comunicati come i tuoi',
+  '[Fine lavori] Documenti dei subappaltatori raccolti per il Fascicolo: dichiarazioni di conformità, schemi, manuali',
+  '[Fine lavori] Dichiarazione di conformità dell’impianto per la tua parte, con allegati',
+  '[Fine lavori] Verbale di consegna e smontaggio di ponteggi e apprestamenti comuni',
+  '[Fine lavori] Intera catena documentale archiviata (serve a dimostrare le verifiche fatte in caso di infortunio)'
+] };
+const SIC_SUBAPPALTATRICE = { codice: 'SICUREZZA_SUBAPPALTATRICE', nome: 'Sicurezza cantiere (impresa subappaltatrice)', voci: [
+  '[Requisiti aziendali] Visura camerale con abilitazioni impianti (D.M. 37/2008) e responsabile tecnico',
+  '[Requisiti aziendali] DURC valido per tutta la durata del subappalto',
+  '[Requisiti aziendali] Patente a crediti con almeno 15 crediti (o documento equivalente, es. SOA in classifica adeguata)',
+  '[Requisiti aziendali] DVR aggiornato',
+  '[Requisiti aziendali] Nomine: RSPP, medico competente (se serve), addetti primo soccorso e antincendio, RLS',
+  '[Requisiti aziendali] Contratto collettivo applicato e dichiarazione di organico medio annuo',
+  '[Requisiti aziendali] Assicurazioni richieste dal contratto di subappalto',
+  '[Prima di iniziare] Contratto di subappalto scritto, con oggetto dei lavori, durata, prezzi e costi della sicurezza indicati',
+  '[Prima di iniziare] Autorizzazione del committente al subappalto, se richiesta (chiesta all’affidataria)',
+  '[Prima di iniziare] Limiti al sub-subappalto chiariti: per affidare a terzi serve l’ok di affidataria e committente',
+  '[Prima di iniziare] Nominativi di committente, CSE, direttore lavori, affidataria e altre imprese con contatti',
+  '[Prima di iniziare] PSC ricevuto dall’affidataria e letto, con presa visione firmata',
+  '[Documenti da consegnare all’affidataria] POS dedicato al cantiere, non copiato, coerente con PSC e con il POS dell’affidataria',
+  '[Documenti da consegnare all’affidataria] Visura, DURC, DVR, patente a crediti',
+  '[Documenti da consegnare all’affidataria] Elenco lavoratori con attestati di formazione e idoneità sanitarie',
+  '[Documenti da consegnare all’affidataria] Elenco di attrezzature, mezzi e opere provvisionali che porti',
+  '[Documenti da consegnare all’affidataria] Nomine (preposto, RSPP, addetti emergenze)',
+  '[Documenti da consegnare all’affidataria] Dichiarazione di contratto collettivo e organico medio annuo',
+  '[Documenti da consegnare all’affidataria] Non hai iniziato finché l’affidataria non ha verificato il tuo POS e lo ha trasmesso al CSE',
+  '[Persone e formazione] Tessera di riconoscimento per ogni lavoratore, con codice anticontraffazione, sempre visibile in cantiere',
+  '[Persone e formazione] Formazione generale e specifica edile in corso di validità',
+  '[Persone e formazione] Preposto formato presente in cantiere',
+  '[Persone e formazione] Lavori elettrici: personale abilitato (PES/PAV)',
+  '[Persone e formazione] Lavori in quota: DPI anticaduta e addestramento',
+  '[Persone e formazione] Operatori di PLE, carrelli, gru e macchine: abilitazioni specifiche',
+  '[Persone e formazione] Primo soccorso e antincendio: addetti nominati e formati',
+  '[Attrezzature e DPI] DPI consegnati con firma di ricevuta',
+  '[Attrezzature e DPI] Libretti e verifiche periodiche di attrezzature e PLE',
+  '[Attrezzature e DPI] Marcatura CE e manuali delle macchine',
+  '[Attrezzature e DPI] Quadri elettrici mobili a norma',
+  '[Attrezzature e DPI] Ponteggi o apprestamenti di altri verificati (completi, controllati) e autorizzati dall’affidataria prima di usarli',
+  '[Coordinamento con affidataria e altre imprese] Disposizioni dell’affidataria e del CSE seguite: PSC, procedure, orari, aree',
+  '[Coordinamento con affidataria e altre imprese] Partecipazione alle riunioni di coordinamento e firma dei verbali',
+  '[Coordinamento con affidataria e altre imprese] Cronoprogramma rispettato; ogni variazione comunicata prima',
+  '[Coordinamento con affidataria e altre imprese] Interferenze concordate: lavori sopra o sotto altri, carichi sospesi, polveri, rumore, passaggi',
+  '[Coordinamento con affidataria e altre imprese] Per impianti: prima di mettere in tensione, provare, collaudare o pressurizzare, avvisa affidataria e CSE e libera la zona',
+  '[Coordinamento con affidataria e altre imprese] Procedura di sezionamento e blocco per interventi su impianti in servizio',
+  '[Coordinamento con affidataria e altre imprese] Permessi di lavoro e chiavi per zone tecniche richiesti prima di entrare',
+  '[Coordinamento con affidataria e altre imprese] Nessuna rimozione o spostamento di protezioni, segnaletica e ponteggi altrui',
+  '[Durante i lavori] Preposto presente e sorveglianza attiva',
+  '[Durante i lavori] Controllo giornaliero di quadri, attrezzature, ordine e pulizia',
+  '[Durante i lavori] Ogni nuova persona, mezzo o lavorazione: documenti pronti, POS aggiornato e avviso all’affidataria prima di iniziare',
+  '[Durante i lavori] Non conformità segnalate da affidataria o CSE chiuse nei tempi indicati',
+  '[Durante i lavori] Infortuni e quasi-infortuni comunicati subito all’affidataria',
+  '[Durante i lavori] DURC e patente controllati alle scadenze (avvisa prima che scadano)',
+  '[Durante i lavori] Sospensioni o allontanamenti ordinati per pericolo grave rispettati e documentati',
+  '[Fine lavori] Dichiarazione di conformità dell’impianto realizzato, con allegati obbligatori',
+  '[Fine lavori] Manuali, schemi e istruzioni d’uso consegnati all’affidataria',
+  '[Fine lavori] Documenti per il Fascicolo dell’opera consegnati all’affidataria',
+  '[Fine lavori] Smontaggio ordinato delle tue opere provvisionali e dei quadri di cantiere',
+  '[Fine lavori] Archiviazione di documenti, verbali e ricevute del subappalto'
+] };
+const SIC_DL = { codice: 'SICUREZZA_DL', nome: 'Sicurezza e adempimenti (Direzione Lavori)', voci: [
+  '[Prima dell’inizio] Incarico scritto dal committente, con compiti e compenso',
+  '[Prima dell’inizio] Titolo edilizio (CILA, SCIA, permesso) verificato come efficace, e progetto conforme a quello approvato',
+  '[Prima dell’inizio] Nomina di CSP e CSE da parte del committente verificata (se più imprese), e notifica preliminare inviata',
+  '[Prima dell’inizio] Contratto di appalto, capitolato e cronoprogramma controllati',
+  '[Prima dell’inizio] Documenti di idoneità delle imprese verificati (visura, DURC, patente a crediti)',
+  '[Prima dell’inizio] Comunicazione di inizio lavori al Comune, quando richiesta',
+  '[Durante i lavori] Sopralluoghi periodici, con verbali e foto',
+  '[Durante i lavori] Conformità dell’esecuzione a progetto, norme tecniche e capitolato controllata',
+  '[Durante i lavori] Accettazione dei materiali: certificati, marcature CE e schede tecniche verificati',
+  '[Durante i lavori] Varianti e tempi gestiti, con approvazione del committente',
+  '[Durante i lavori] Contabilità dei lavori e stati di avanzamento verificati',
+  '[Durante i lavori] Violazioni contrattuali o di sicurezza rilevate segnalate al committente e al CSE',
+  '[Durante i lavori] Coordinamento con il CSE mantenuto, senza sostituirsi a lui',
+  '[Fine lavori] Comunicazione di fine lavori al Comune, con relazione tecnica',
+  '[Fine lavori] Dichiarazioni di conformità degli impianti e allegati verificati',
+  '[Fine lavori] Documenti per agibilità, catasto o pratiche energetiche predisposti, se previsti',
+  '[Fine lavori] Certificato di regolare esecuzione o collaudo prodotto',
+  '[Fine lavori] Documentazione finale consegnata al committente'
+] };
+const SIC_PER_RUOLO = {
+  ESECUTRICE_ALLA_PARI: [SIC_ESECUTRICE],
+  AFFIDATARIA: [SIC_ESECUTRICE, SIC_AFFIDATARIA],
+  SUBAPPALTATRICE: [SIC_SUBAPPALTATRICE],
+  DIREZIONE_LAVORI: [SIC_DL]
+};
+/* modello completo dell'iter per un ruolo: i passaggi fissi, con inseriti prima di "Cantiere" i
+   passaggi di sicurezza che spettano a quel ruolo. Usato sia per creare l'iter di una nuova
+   commessa, sia (tramite iterDisponibili) per "+ Aggiungi passaggio dal modello" su una
+   commessa esistente: nello stesso ordine, così un passaggio aggiunto dopo finisce nel posto
+   giusto rispetto agli altri, non sempre in fondo. */
+function iterModello(ruolo) {
+  const extra = SIC_PER_RUOLO[ruolo] || [];
+  const base = DEFAULT_ITER.slice(), ins = base.findIndex((s) => s.codice === 'CANTIERE');
+  base.splice(ins < 0 ? base.length : ins, 0, ...extra);
+  return base;
+}
+function newIter(ruolo) { return iterModello(ruolo).map((s) => ({ codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t, done: false })) })); }
+const iterDisponibili = (c) => iterModello(c && c.ruolo);
 function newFasi(tipi) {
   const out = [];
   (tipi || []).forEach((id) => { const t = G('tipiLavoro', id); if (!t) return; (t.fasiTemplate || []).forEach((f) => out.push({ nome: f.nome + (tipi.length > 1 ? ' (' + t.nome + ')' : ''), peso: f.peso || 1, voci: (f.voci || []).map((x) => ({ t: x, done: false })) })); });
@@ -571,6 +713,7 @@ function commessaFields() {
     { k: 'clienteId', l: 'Cliente', t: 'select', req: true, opts: D('clienti').sort(byStr((x) => x.ragioneSociale)).map((c) => [c.id, c.ragioneSociale]) },
     { k: 'titolo', l: 'Lavori (titolo)', req: true },
     { k: 'descrizione', l: 'Descrizione dei lavori', t: 'textarea' },
+    { k: 'ruolo', l: 'Ruolo della tua impresa in questa commessa', t: 'select', req: true, opts: RUOLI_COMMESSA, hint: 'Determina quale checklist di sicurezza viene proposta nell’iter.' },
     { k: 'tipiLavoro', l: 'Tipologie di lavoro', t: 'multi', opts: D('tipiLavoro').sort(byStr((x) => x.nome)).map((t) => [t.id, t.nome]) },
     { k: 'tipologiaCantiere', l: 'Tipologia di cantiere', t: 'select', half: true, opts: TIPI_CANTIERE },
     { k: 'responsabile', l: 'Responsabile commessa', half: true },
@@ -588,8 +731,8 @@ A.newC = () => {
   if (!D('clienti').length) { toast('Aggiungi prima almeno un cliente.', 'err'); go('clienti'); return; }
   openForm({
     title: 'Nuova commessa', wide: true, info: 'L\u2019iter (preventivo, conferma d\u2019ordine, POS, DICO…) e la checklist di cantiere si creano da soli in base alle tipologie scelte.',
-    fields: commessaFields(), values: { codice: nextCodice(), stato: 'OFFERTA', aliquotaIva: 22 },
-    onSave: async (v) => { const id = newId('commesse'); await put('commesse', id, Object.assign({}, v, { iter: newIter(), fasi: newFasi(v.tipiLavoro), sicurezza: [], pagamenti: [], costi: [], creataIl: today() })); go('commessa', id, 'panoramica'); }
+    fields: commessaFields(), values: { codice: nextCodice(), stato: 'OFFERTA', aliquotaIva: 22, ruolo: 'ESECUTRICE_ALLA_PARI' },
+    onSave: async (v) => { const id = newId('commesse'); await put('commesse', id, Object.assign({}, v, { iter: newIter(v.ruolo), fasi: newFasi(v.tipiLavoro), sicurezza: [], pagamenti: [], costi: [], creataIl: today() })); go('commessa', id, 'panoramica'); }
   });
 };
 A.editC = (d) => { const c = G('commesse', d.id); openForm({ title: 'Modifica commessa', wide: true, fields: commessaFields(), values: c, onSave: (v) => patch('commesse', c.id, v), onDelete: S.admin ? async () => { await remove('commesse', c.id); go('commesse'); } : null }); };
@@ -612,7 +755,7 @@ function tabPanoramica(c) {
   const tipi = (c.tipiLavoro || []).map((id) => (G('tipiLavoro', id) || {}).nome).filter(Boolean).map((n) => bd(n, 'teal')).join(' ');
   const strip = '<div class="iter">' + (c.iter || []).map((s) => { const col = { COMPLETATO: '#15803D', IN_CORSO: '#1E3A6E', IN_ATTESA: '#B45309' }[s.stato] || 'var(--ln)'; return '<div class="st"><i style="background:' + col + '"></i><b>' + esc(s.nome) + '</b>' + stBadge(STATI_STEP, s.stato) + '</div>'; }).join('') + '</div>';
   return '<div class="stack">' + card('Iter di commessa', '<div class="muted small">' + it[0] + ' di ' + it[1] + ' passaggi completati</div>' + strip, '<button class="btn sm" data-a="ctab" data-t="iter">Apri iter</button>') +
-    '<div class="grid g2"><div class="stack">' + card('Cliente e cantiere', '<div class="kv">' + kv('Cliente', esc(cl.ragioneSociale)) + kv('Referente', esc(cl.referente)) + kv('Luogo', esc([c.indirizzo, c.citta, c.provincia].filter(Boolean).join(', '))) + kv('Tipologia di cantiere', esc(c.tipologiaCantiere)) + kv('Tipologie di lavoro', tipi) + kv('Responsabile', esc(c.responsabile)) + kv('Inizio previsto', esc(fmtD(c.dataInizio))) + kv('Fine prevista', esc(fmtD(c.dataFine))) + '</div>') +
+    '<div class="grid g2"><div class="stack">' + card('Cliente e cantiere', '<div class="kv">' + kv('Cliente', esc(cl.ragioneSociale)) + kv('Referente', esc(cl.referente)) + kv('Luogo', esc([c.indirizzo, c.citta, c.provincia].filter(Boolean).join(', '))) + kv('Ruolo nella sicurezza', c.ruolo ? esc(lab(RUOLI_COMMESSA, c.ruolo)) : '<span class="muted">Da indicare</span>') + kv('Tipologia di cantiere', esc(c.tipologiaCantiere)) + kv('Tipologie di lavoro', tipi) + kv('Responsabile', esc(c.responsabile)) + kv('Inizio previsto', esc(fmtD(c.dataInizio))) + kv('Fine prevista', esc(fmtD(c.dataFine))) + '</div>') +
     card('Descrizione dei lavori', '<div style="white-space:pre-wrap">' + (esc(c.descrizione) || '<span class="muted">Nessuna descrizione.</span>') + '</div>') + '</div>' +
     '<div class="stack">' + card('Numeri', '<div class="kv">' + kv('Importo contratto', '<b>' + eur(c.importo) + '</b> + IVA ' + esc(c.aliquotaIva || 0) + '%') + kv('Incassato', '<b>' + eur(inc) + '</b>') + kv('Avanzamento cantiere', pctFasi(c) + '%') + kv('Margine attuale', eur(Number(c.importo) - costiC(c)) + ' <span class="muted small">(contratto meno costi registrati)</span>') + '</div>') +
     (c.note ? card('Note', '<div style="white-space:pre-wrap">' + esc(c.note) + '</div>') : '') + '</div></div></div>';
@@ -622,7 +765,7 @@ function tabPanoramica(c) {
 function tabIter(c) {
   const it = iterCount(c);
   const n = (c.iter || []).length;
-  const mancano = DEFAULT_ITER.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
+  const mancano = iterDisponibili(c).filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
   const addBtn = mancano.length ? '<div style="margin-bottom:14px"><button class="btn sm" data-a="iterPassAdd" data-id="' + esc(c.id) + '">+ Aggiungi passaggio dal modello</button></div>' : '';
   return '<div class="muted" style="margin-bottom:12px">' + it[0] + ' di ' + it[1] + ' passaggi completati. I passaggi contrassegnati come bloccanti condizionano planning e fatturazione.</div>' + addBtn + '<div class="stack">' + (c.iter || []).map((s, i) => {
     const done = (s.voci || []).filter((v) => v.done).length;
@@ -663,16 +806,16 @@ A.iterPassDown = (d) => iterPassMove(d, 1);
    passaggio introdotto in Personalizza dopo la creazione della commessa), inserendolo nella
    posizione che ha nel modello rispetto ai passaggi già presenti, non sempre in fondo */
 A.iterPassAdd = (d) => {
-  const c = G('commesse', d.id), mancano = DEFAULT_ITER.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
+  const c = G('commesse', d.id), disp = iterDisponibili(c), mancano = disp.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
   if (!mancano.length) return;
   openForm({
     title: 'Aggiungi passaggio dal modello', fields: [{ k: 'codice', l: 'Passaggio', t: 'select', req: true, opts: mancano.map((s) => [s.codice, s.nome]) }],
     onSave: async (v) => {
-      const s = DEFAULT_ITER.find((x) => x.codice === v.codice); if (!s) return;
+      const s = disp.find((x) => x.codice === v.codice); if (!s) return;
       const nuovo = { codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t: t, done: false })) };
-      const n = clone(c.iter || []), posModello = DEFAULT_ITER.findIndex((x) => x.codice === s.codice);
+      const n = clone(c.iter || []), posModello = disp.findIndex((x) => x.codice === s.codice);
       let ins = n.length;
-      for (let i = 0; i < n.length; i++) { const pi = DEFAULT_ITER.findIndex((x) => x.codice === n[i].codice); if (pi > posModello) { ins = i; break; } }
+      for (let i = 0; i < n.length; i++) { const pi = disp.findIndex((x) => x.codice === n[i].codice); if (pi > posModello) { ins = i; break; } }
       n.splice(ins, 0, nuovo);
       await patch('commesse', c.id, { iter: n });
     }
