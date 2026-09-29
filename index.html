@@ -672,6 +672,10 @@ function view() {
   }
 }
 const pageHead = (title, sub, actions) => '<div class="hd"><div><h1>' + esc(title) + '</h1>' + (sub ? '<p class="sub">' + esc(sub) + '</p>' : '') + '</div><div class="row">' + (actions || '') + '</div></div>';
+/* mostrato quando un dipendente non risulta collegato a una scheda: indica CON QUALE account
+   è entrato, perché il caso più comune non è che manchi il collegamento, ma che la persona sia
+   entrata con un account Google diverso da quello che l'amministrazione ha effettivamente collegato */
+const accountHint = () => '<p class="muted" style="margin-top:10px">Sei entrato come <b>' + esc(S.me || '') + '</b> (' + esc(S.uid || '') + '). Controlla che l’amministrazione abbia collegato esattamente questo indirizzo da «Ore del personale › Accessi» — se lì risulta un indirizzo anche solo leggermente diverso (es. un punto, un dominio, maiuscole/minuscole), l’app non lo riconosce come collegato.</p>';
 const kpi = (l, v, n) => '<div class="card kpi"><div class="l">' + esc(l) + '</div><div class="v">' + esc(v) + '</div><div class="n">' + esc(n || '') + '</div></div>';
 
 /* ---------- dashboard ---------- */
@@ -948,7 +952,7 @@ const NOMI_GG_C = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
    planningSnapshotDi) — vede sé stesso e i colleghi della propria squadra, non le altre squadre. */
 function vPlanningMio() {
   const acc = G('accessi', S.uid);
-  if (!acc || !acc.dipendenteId) return pageHead('Planning', '') + '<div class="card"><h2>Account non ancora collegato</h2><p class="muted">Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all’amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.</p></div>';
+  if (!acc || !acc.dipendenteId) return pageHead('Planning', '') + '<div class="card"><h2>Account non ancora collegato</h2><p class="muted">Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all’amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.</p>' + accountHint() + '</div>';
   const pl = acc.planning;
   if (!pl || !pl.squadre || !pl.squadre.length) return pageHead('Planning', 'La tua pianificazione settimanale e giornaliera.') + '<div class="card"><div class="empty">Non fai ancora parte di nessuna squadra: chiedi all’amministrazione di aggiungerti da Personale › Squadre.</div></div>';
   const wk = monday(today()), rigaChi = (s) => '<div class="s">' + esc(s.nome) + '<span class="small muted">' + esc([s.capo, s.membri.join(', ')].filter(Boolean).join(' · ')) + '</span></div>';
@@ -1115,7 +1119,7 @@ A.docDipEdit = (d) => { const x = G('dipendenti', d.id), i = (x.documenti || [])
    che il backend non permette a un dipendente di leggere la collezione "dipendenti"). */
 function vMieiDocumenti() {
   const acc = G('accessi', S.uid);
-  if (!acc || !acc.dipendenteId) return pageHead('I miei documenti', '') + '<div class="card"><h2>Account non ancora collegato</h2><p class="muted">Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all’amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.</p></div>';
+  if (!acc || !acc.dipendenteId) return pageHead('I miei documenti', '') + '<div class="card"><h2>Account non ancora collegato</h2><p class="muted">Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all’amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.</p>' + accountHint() + '</div>';
   const form = acc.formazione || [], docs = acc.documentiPersonali || [];
   const t = tbl([{ h: 'Corso o abilitazione', f: (a) => '<b>' + esc(abLabel(a.tipo)) + '</b>' + (a.descrizione ? '<div class="small muted">' + esc(a.descrizione) + '</div>' : '') }, { h: 'Conseguito', f: (a) => esc(fmtD(a.dataConseguimento)) }, { h: 'Scadenza', f: (a) => a.dataScadenza ? scadBadge(a.dataScadenza) : '<span class="muted">Non scade</span>' }, { h: 'Attestato', f: (a) => fileLink(a.file) }], form.slice().sort((a, b) => String(a.dataScadenza || '9999').localeCompare(String(b.dataScadenza || '9999'))), { empty: 'Nessuna abilitazione registrata.' });
   const doc = tbl([{ h: 'Documento', f: (x) => '<b>' + esc(x.titolo || lab(TIPI_DOC_DIP, x.tipo)) + '</b><div class="small muted">' + esc(lab(TIPI_DOC_DIP, x.tipo)) + '</div>' }, { h: 'Data', f: (x) => esc(fmtD(x.data)) }, { h: 'Scadenza', f: (x) => x.scadenza ? scadBadge(x.scadenza) : '<span class="muted">Non scade</span>' }, { h: 'File', f: (x) => fileLink(x.file) }], docs.slice().sort((a, b) => String(a.scadenza || '9999').localeCompare(String(b.scadenza || '9999'))), { empty: 'Nessun documento caricato.' });
@@ -1490,9 +1494,9 @@ function vMieOre() {
   const sub = adm ? 'La pagina che usano i dipendenti per registrare ore, pause e lavori svolti. Da amministratore puoi vederla e modificarla per ogni persona.' : 'Registra ingresso, uscita, pausa e attività svolte. A fine mese l\u2019amministrazione ha già i totali.';
   if (!S.uid && !adm) return pageHead(titolo, '') + '<div class="card"><h2>Account non riconosciuto</h2><p class="muted">Accedi con il tuo account per registrare le ore.</p></div>';
   const u = viewU();
-  if (!u) return pageHead(titolo, sub) + '<div class="card"><h2>' + (adm ? 'Nessun dipendente collegato' : 'Account non ancora collegato') + '</h2><p class="muted">' + (adm ? 'Collega almeno un dipendente a un account da Ore del personale, scheda Accessi: poi qui vedrai e potrai modificare le sue ore.' : 'Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all\u2019amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.') + '</p></div>';
+  if (!u) return pageHead(titolo, sub) + '<div class="card"><h2>' + (adm ? 'Nessun dipendente collegato' : 'Account non ancora collegato') + '</h2><p class="muted">' + (adm ? 'Collega almeno un dipendente a un account da Ore del personale, scheda Accessi: poi qui vedrai e potrai modificare le sue ore.' : 'Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all\u2019amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.') + '</p>' + (adm ? '' : accountHint()) + '</div>';
   const acc = G('accessi', u);
-  if (!adm && (!acc || !acc.dipendenteId)) return pageHead(titolo, sub) + '<div class="card"><h2>Account non ancora collegato</h2><p class="muted">Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all\u2019amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.</p></div>';
+  if (!adm && (!acc || !acc.dipendenteId)) return pageHead(titolo, sub) + '<div class="card"><h2>Account non ancora collegato</h2><p class="muted">Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all\u2019amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.</p>' + accountHint() + '</div>';
   const m = S.mese || meseOggi(), righe = righeOf(u, m), st = stBase(u, m, righe), lock = !adm && st.k === 'ok';
   const dd = m === meseOggi() ? today() : m + '-01';
   let act = '<button class="btn p" data-a="oreNew" data-u="' + esc(u) + '" data-m="' + m + '" data-d="' + dd + '"' + (lock ? ' disabled' : '') + '>Registra ore</button>';
