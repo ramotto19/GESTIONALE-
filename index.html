@@ -639,7 +639,7 @@ function bloccati() {
 /* ---------- struttura ---------- */
 const A = {}, C = {}, I = {};
 const NAV = [['dashboard', 'Dashboard'], ['commesse', 'Commesse'], ['iter', 'Iter commesse'], ['planning', 'Planning'], ['scadenzario', 'Calendario'], ['clienti', 'Clienti'], ['personale', 'Personale'], ['azienda', 'Azienda'], ['documentale', 'Documentale']];
-const navItems = () => (S.admin ? NAV.concat(regs().map((r) => ['reg', r.nome, r.id]), [['ore', 'Ore del personale'], ['mieore', 'Registro ore'], ['editor', 'Personalizza']]) : [['mieore', 'Le mie ore']]);
+const navItems = () => (S.admin ? NAV.concat(regs().map((r) => ['reg', r.nome, r.id]), [['ore', 'Ore del personale'], ['mieore', 'Registro ore'], ['editor', 'Personalizza']]) : [['mieore', 'Le mie ore'], ['miidoc', 'I miei documenti'], ['planning', 'Planning']]);
 const neededCols = () => (S.admin ? COLS : ['accessi', 'commesseElenco']);
 const navOn = (r, id) => (r === 'reg' ? S.route === 'reg' && S.id === id : ({ commessa: 'commesse', dipendente: 'personale', mezzo: 'azienda' }[S.route] || S.route) === r);
 const hasDemo = () => COLS.some((c) => D(c).some((x) => x.demo));
@@ -667,6 +667,7 @@ function view() {
     case 'reg': return vReg();
     case 'editor': return vEditor();
     case 'mieore': return vMieOre();
+    case 'miidoc': return vMieiDocumenti();
     default: return vDashboard();
   }
 }
@@ -904,7 +905,8 @@ function vIter() {
 /* ---------- planning settimanale ---------- */
 const TINTE = ['teal', 'purple', 'blue', 'amber', 'green', 'gray'];
 const tinta = (id) => TINTE[[...String(id)].reduce((t, ch) => t + ch.charCodeAt(0), 0) % TINTE.length];
-function vPlanning() {
+function vPlanning() { return S.admin ? vPlanningAdmin() : vPlanningMio(); }
+function vPlanningAdmin() {
   if (!S.week) S.week = monday(today());
   const weeks = Array.from({ length: 8 }, (_, i) => addDays(S.week, 7 * i)), wk = monday(today());
   const sq = D('squadre').sort(byStr((x) => x.nome));
@@ -941,6 +943,26 @@ function vPlanning() {
     '<div class="card scroll" style="padding:0">' + gg + '</div>';
 }
 const NOMI_GG_C = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+/* planning del dipendente: stessa vista dell'amministratore (griglia settimanale + giornaliera),
+   ma con solo le righe delle squadre di cui fa parte (letta dallo snapshot in accessi, vedi
+   planningSnapshotDi) — vede sé stesso e i colleghi della propria squadra, non le altre squadre. */
+function vPlanningMio() {
+  const acc = G('accessi', S.uid);
+  if (!acc || !acc.dipendenteId) return pageHead('Planning', '') + '<div class="card"><h2>Account non ancora collegato</h2><p class="muted">Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all’amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.</p></div>';
+  const pl = acc.planning;
+  if (!pl || !pl.squadre || !pl.squadre.length) return pageHead('Planning', 'La tua pianificazione settimanale e giornaliera.') + '<div class="card"><div class="empty">Non fai ancora parte di nessuna squadra: chiedi all’amministrazione di aggiungerti da Personale › Squadre.</div></div>';
+  const wk = monday(today()), rigaChi = (s) => '<div class="s">' + esc(s.nome) + '<span class="small muted">' + esc([s.capo, s.membri.join(', ')].filter(Boolean).join(' · ')) + '</span></div>';
+  const g = '<div class="pl"><div class="h">Squadra</div>' + pl.squadre[0].settimane.map((w) => '<div class="h' + (w.w === wk ? ' now' : '') + '">Sett. ' + isoWeek(w.w) + '<span class="muted small">' + fmtShort(w.w) + ' – ' + fmtShort(addDays(w.w, 6)) + '</span></div>').join('') +
+    pl.squadre.map((s) => rigaChi(s) + s.settimane.map((w) => w.codice ? '<div><div class="cellb f" style="background:var(--' + w.tinta + '-bg);color:var(--' + w.tinta + '-tx);border-color:transparent"><span class="mono">' + esc(w.codice) + '</span><br><span class="small">' + esc(w.cliente) + '</span></div></div>' : '<div><div class="cellb">Libera</div></div>').join('')).join('') + '</div>';
+  const giorni = pl.squadre[0].giorni.map((x) => x.d);
+  const gg = '<div class="pl d7"><div class="h">Squadra</div>' + giorni.map((d, i) => '<div class="h' + (d === today() ? ' now' : '') + '">' + NOMI_GG_C[i] + '<span class="muted small">' + fmtShort(d) + '</span></div>').join('') +
+    pl.squadre.map((s) => rigaChi(s) + s.giorni.map((gd) => {
+      const chips = gd.chips.map((c) => '<span class="chip" style="background:var(--' + c.tinta + '-bg);color:var(--' + c.tinta + '-tx)">' + esc((c.dalle || c.alle ? (c.dalle || '?') + '–' + (c.alle || '?') + ' ' : '') + c.codice) + '</span>').join('');
+      return '<div><div class="cellb' + (chips ? ' f' : '') + '">' + (chips || 'Libera') + '</div></div>';
+    }).join('')).join('') + '</div>';
+  return pageHead('Planning', 'La tua pianificazione e quella della tua squadra: settimanale e, per questa settimana, giorno per giorno.') + '<div class="card scroll" style="padding:0;margin-bottom:16px">' + g + '</div>' +
+    '<h2 style="margin:24px 0 4px">Questa settimana, giorno per giorno</h2><div class="card scroll" style="padding:0">' + gg + '</div>';
+}
 A.wk = (d) => { S.week = addDays(S.week || monday(today()), 7 * (+d.n)); queueRender(); };
 A.wkToday = () => { S.week = monday(today()); queueRender(); };
 A.cell = (d) => {
@@ -1087,6 +1109,18 @@ const TIPI_DOC_DIP = [['CARTA_IDENTITA', 'Carta d’identità'], ['CONTRATTO_LAV
 const docDipFields = () => [{ k: 'tipo', l: 'Tipo di documento', t: 'select', req: true, opts: TIPI_DOC_DIP }, { k: 'titolo', l: 'Titolo (facoltativo)' }, { k: 'data', l: 'Data documento', t: 'date', half: true }, { k: 'scadenza', l: 'Scadenza (se prevista)', t: 'date', half: true }, { k: 'file', l: 'File', t: 'file' }, { k: 'note', l: 'Note', t: 'textarea' }];
 A.docDipNew = (d) => editSub({ col: 'dipendenti', id: d.id, key: 'documenti', title: 'Nuovo documento', fields: docDipFields() });
 A.docDipEdit = (d) => { const x = G('dipendenti', d.id), i = (x.documenti || []).findIndex((a) => a.id === d.x); if (i >= 0) editSub({ col: 'dipendenti', id: d.id, key: 'documenti', i, title: 'Documento', fields: docDipFields() }); };
+
+/* pagina "I miei documenti" del dipendente: stessa formazione + documenti personali che vede
+   l'amministratore nella sua scheda, ma di sola lettura (letti dallo snapshot in accessi, dato
+   che il backend non permette a un dipendente di leggere la collezione "dipendenti"). */
+function vMieiDocumenti() {
+  const acc = G('accessi', S.uid);
+  if (!acc || !acc.dipendenteId) return pageHead('I miei documenti', '') + '<div class="card"><h2>Account non ancora collegato</h2><p class="muted">Il tuo accesso non è ancora collegato a una scheda dipendente. Chiedi all’amministrazione di collegarlo dalla sezione Ore del personale, scheda Accessi.</p></div>';
+  const form = acc.formazione || [], docs = acc.documentiPersonali || [];
+  const t = tbl([{ h: 'Corso o abilitazione', f: (a) => '<b>' + esc(abLabel(a.tipo)) + '</b>' + (a.descrizione ? '<div class="small muted">' + esc(a.descrizione) + '</div>' : '') }, { h: 'Conseguito', f: (a) => esc(fmtD(a.dataConseguimento)) }, { h: 'Scadenza', f: (a) => a.dataScadenza ? scadBadge(a.dataScadenza) : '<span class="muted">Non scade</span>' }, { h: 'Attestato', f: (a) => fileLink(a.file) }], form.slice().sort((a, b) => String(a.dataScadenza || '9999').localeCompare(String(b.dataScadenza || '9999'))), { empty: 'Nessuna abilitazione registrata.' });
+  const doc = tbl([{ h: 'Documento', f: (x) => '<b>' + esc(x.titolo || lab(TIPI_DOC_DIP, x.tipo)) + '</b><div class="small muted">' + esc(lab(TIPI_DOC_DIP, x.tipo)) + '</div>' }, { h: 'Data', f: (x) => esc(fmtD(x.data)) }, { h: 'Scadenza', f: (x) => x.scadenza ? scadBadge(x.scadenza) : '<span class="muted">Non scade</span>' }, { h: 'File', f: (x) => fileLink(x.file) }], docs.slice().sort((a, b) => String(a.scadenza || '9999').localeCompare(String(b.scadenza || '9999'))), { empty: 'Nessun documento caricato.' });
+  return pageHead('I miei documenti', 'Formazione, abilitazioni e documenti personali. Per aggiornarli o caricarne di nuovi, contatta l’amministrazione.') + card('Formazione e abilitazioni', t) + card('Documenti personali', doc);
+}
 /* ---------- azienda ---------- */
 function vAzienda() {
   const tab = S.atab || 'documenti';
@@ -1402,6 +1436,27 @@ function settimanaDi(dipId) {
   return out;
 }
 const settimanaU = (u) => (S.admin ? settimanaDi((G('accessi', u) || {}).dipendenteId) : ((G('accessi', u) || {}).settimana || []));
+/* griglia planning (8 settimane + settimana corrente giorno per giorno), stessa vista
+   dell'amministratore ma solo per le squadre di cui il dipendente fa davvero parte: così
+   vede sé stesso e i colleghi della propria squadra, ma non gli impegni delle altre squadre.
+   Pre-calcolata qui (lato admin, dentro runSync) e salvata nella scheda accessi del
+   dipendente, perché il backend non permette a un dipendente di leggere squadre/assegnazioni. */
+function planningSnapshotDi(dipId) {
+  if (!dipId) return null;
+  const sqs = D('squadre').filter((s) => (s.membri || []).includes(dipId) || s.capoId === dipId);
+  if (!sqs.length) return { squadre: [] };
+  const wk0 = monday(today()), weeks = Array.from({ length: 8 }, (_, i) => addDays(wk0, 7 * i)), giorni = Array.from({ length: 7 }, (_, i) => addDays(wk0, i));
+  const squadre = sqs.map((s) => ({
+    id: s.id, nome: s.nome, capo: nomeD(G('dipendenti', s.capoId)) || '', membri: (s.membri || []).map((id) => nomeD(G('dipendenti', id))).filter(Boolean),
+    settimane: weeks.map((w) => { const a = G('assegnazioni', s.id + '_' + w), c = a && G('commesse', a.commessaId); return c ? { w, codice: c.codice, cliente: clienteNome(c.clienteId), tinta: tinta(c.id) } : { w }; }),
+    giorni: giorni.map((d) => {
+      const e = effDay(s.id, d);
+      const chips = (e ? e.fasce : []).map((fs) => { const c = G('commesse', fs.commessaId); return c ? { dalle: fs.dalle || '', alle: fs.alle || '', codice: c.codice, tinta: tinta(c.id) } : null; }).filter(Boolean);
+      return { d, chips };
+    })
+  }));
+  return { weekStart: wk0, squadre };
+}
 function settLabel(w) { const m = monday(today()); return w === m ? 'Questa settimana' : w === addDays(m, 7) ? 'Prossima settimana' : w === addDays(m, -7) ? 'Settimana scorsa' : 'Sett. ' + isoWeek(w) + ' · dal ' + fmtD(w); }
 function boxAssegnate(list, titolo) {
   const rows = list.length ? list.map((x) => '<div class="blk"><div style="min-width:170px"><b>' + esc(settLabel(x.w)) + '</b></div><div style="flex:1"><span class="mono">' + esc(x.c) + '</span>' + (x.t ? ' · ' + esc(x.t) : '') + '<div class="small muted">' + esc(x.sq) + '</div></div></div>').join('') : '<div class="empty">Nessuna assegnazione in pianificazione per le prossime settimane.</div>';
@@ -1619,10 +1674,15 @@ async function runSync() {
     D('commesse').filter((c) => ATTIVE.includes(c.stato)).forEach((c) => { want[c.id] = { codice: c.codice, label: commessaLabel(c), stato: c.stato }; });
     for (const id of Object.keys(want)) { const cur = G('commesseElenco', id), w = want[id]; if (!cur || cur.label !== w.label || cur.codice !== w.codice || cur.stato !== w.stato) { try { await db.doc('commesseElenco/' + id).set(w); } catch (e) { /* ignora */ } } }
     for (const x of D('commesseElenco')) if (!want[x.id]) { try { await db.doc('commesseElenco/' + x.id).delete(); } catch (e) { /* ignora */ } }
-    if (S.loaded.assegnazioni && S.loaded.assegnazioniG && S.loaded.squadre && S.loaded.accessi) for (const a of D('accessi').filter((y) => y.dipendenteId)) {
+    if (S.loaded.assegnazioni && S.loaded.assegnazioniG && S.loaded.squadre && S.loaded.accessi && S.loaded.dipendenti) for (const a of D('accessi').filter((y) => y.dipendenteId)) {
       const w = assegnateDi(a.dipendenteId), s = settimanaDi(a.dipendenteId), p = {};
       if (JSON.stringify(w) !== JSON.stringify(a.assegnate || [])) p.assegnate = w;
       if (JSON.stringify(s) !== JSON.stringify(a.settimana || [])) p.settimana = s;
+      const dip = G('dipendenti', a.dipendenteId), form = (dip && dip.abilitazioni) || [], docs = (dip && dip.documenti) || [];
+      if (JSON.stringify(form) !== JSON.stringify(a.formazione || [])) p.formazione = form;
+      if (JSON.stringify(docs) !== JSON.stringify(a.documentiPersonali || [])) p.documentiPersonali = docs;
+      const pl = planningSnapshotDi(a.dipendenteId);
+      if (JSON.stringify(pl) !== JSON.stringify(a.planning || null)) p.planning = pl;
       if (Object.keys(p).length) { try { await db.doc('accessi/' + a.id).update(p); } catch (e) { /* ignora */ } }
     }
   } finally {
