@@ -323,7 +323,7 @@ const TIPI_CANTIERE = ['Civile', 'Industriale', 'Commerciale', 'Pubblico', 'Resi
 const STATI_STEP = [['DA_FARE', 'Da fare', 'grey'], ['IN_CORSO', 'In corso', 'blue'], ['IN_ATTESA', 'In attesa', 'amber'], ['COMPLETATO', 'Fatto', 'green'], ['NON_APPLICABILE', 'Non applicabile', 'grey']];
 const TIPI_AB = [['FORMAZIONE_GENERALE', 'Formazione generale', null], ['FORMAZIONE_SPECIFICA', 'Formazione specifica', 60], ['AGGIORNAMENTO_SICUREZZA', 'Aggiornamento sicurezza', 60], ['IDONEITA_SANITARIA', 'Idoneità sanitaria', 12], ['PES_PAV_PEI', 'PES / PAV / PEI', 60], ['LAVORI_IN_QUOTA', 'Lavori in quota', 60], ['PLE', 'Uso PLE / cestello', 60], ['ANTINCENDIO', 'Antincendio (addetti)', 60], ['PRIMO_SOCCORSO', 'Primo soccorso', 36], ['FGAS', 'F-gas (personale)', null], ['SPAZI_CONFINATI', 'Spazi confinati', 60], ['ALTRO', 'Altro', null]];
 const TIPI_DOC_AZ = [['DURC', 'DURC', null], ['VISURA_CAMERALE', 'Visura camerale', null], ['ABILITAZIONE_INSTALLATORE', 'Abilitazione installatore (DM 37/08)', null], ['CERTIFICAZIONE_FGAS', 'Certificazione F-gas impresa', null], ['ATTESTAZIONE_SOA', 'Attestazione SOA', null], ['CERTIFICAZIONE_ISO', 'Certificazione ISO', null], ['ISCRIZIONE_ALBO', 'Iscrizione ad albo', null], ['ATTESTAZIONE_ANTINCENDIO', 'Attestazione antincendio', null], ['PATENTE_CREDITI', 'Patente a crediti', null], ['DVR', 'DVR - valutazione dei rischi', null], ['NOMINA_RSPP', 'Nomina RSPP', null], ['MEDICO_COMPETENTE', 'Nomina medico competente', null], ['NOMINA_PRIMO_SOCCORSO', 'Nomina addetti primo soccorso', null], ['NOMINA_ANTINCENDIO', 'Nomina addetti antincendio', null], ['NOMINA_RLS', 'Elezione/designazione RLS', null], ['CCNL_ORGANICO', 'CCNL applicato e organico medio annuo', null], ['ALTRO', 'Altro', null]];
-const TIPI_SIC = [['POS', 'POS'], ['DVR', 'DVR'], ['DUVRI', 'DUVRI'], ['PSC', 'PSC'], ['PRESA_VISIONE_PSC', 'Presa visione PSC firmata'], ['NOTIFICA_PRELIMINARE', 'Notifica preliminare'], ['VERBALE_COORDINAMENTO', 'Verbale di coordinamento'], ['CONSEGNA_POS_CSE', 'Ricevuta consegna POS al CSE'], ['NOMINA_DIRETTORE_PREPOSTO', 'Nomina direttore tecnico di cantiere e preposto'], ['CONSULTAZIONE_RLS', 'Verbale consultazione RLS'], ['IDONEITA_TECNICO_PROF', 'Idoneità tecnico-professionale (visura, DURC, DVR, elenco lavoratori e attrezzature)'], ['FASCICOLO_OPERA', 'Documenti per il Fascicolo dell’opera'], ['CONTRATTO_SUBAPPALTO', 'Contratto di subappalto'], ['COMUNICAZIONE_SUBAPPALTATORI', 'Comunicazione nominativi subappaltatori/autonomi'], ['INCARICO_DL', 'Incarico di direzione lavori'], ['TITOLO_EDILIZIO', 'Titolo edilizio (CILA/SCIA/permesso)'], ['COMUNICAZIONE_FINE_LAVORI', 'Comunicazione fine lavori / relazione DL'], ['CERTIFICATO_REGOLARE_ESECUZIONE', 'Certificato di regolare esecuzione / collaudo DL'], ['ALTRO', 'Altro']];
+const TIPI_SIC = [['POS', 'POS'], ['DVR', 'DVR'], ['DUVRI', 'DUVRI'], ['PSC', 'PSC'], ['PRESA_VISIONE_PSC', 'Presa visione PSC firmata'], ['NOTIFICA_PRELIMINARE', 'Notifica preliminare'], ['VERBALE_COORDINAMENTO', 'Verbale di coordinamento'], ['CONSEGNA_POS_CSE', 'Ricevuta consegna POS al CSE'], ['NOMINA_DIRETTORE_PREPOSTO', 'Nomina direttore tecnico di cantiere e preposto'], ['CONSULTAZIONE_RLS', 'Verbale consultazione RLS'], ['IDONEITA_TECNICO_PROF', 'Idoneità tecnico-professionale (visura, DURC, DVR, elenco lavoratori e attrezzature)'], ['FASCICOLO_OPERA', 'Documenti per il Fascicolo dell’opera'], ['CONTRATTO_SUBAPPALTO', 'Contratto di subappalto'], ['COMUNICAZIONE_SUBAPPALTATORI', 'Comunicazione nominativi subappaltatori/autonomi'], ['INCARICO_DL', 'Incarico di direzione lavori'], ['TITOLO_EDILIZIO', 'Titolo edilizio (CILA/SCIA/permesso)'], ['COMUNICAZIONE_FINE_LAVORI', 'Comunicazione fine lavori / relazione DL'], ['CERTIFICATO_REGOLARE_ESECUZIONE', 'Certificato di regolare esecuzione / collaudo DL'], ['PIMUS', 'PiMUS - piano di montaggio, uso e smontaggio ponteggi'], ['ALTRO', 'Altro']];
 const STATI_SIC = [['DA_REDIGERE', 'Da redigere', 'grey'], ['IN_REVISIONE', 'In revisione', 'amber'], ['APPROVATO', 'Approvato', 'green'], ['SCADUTO', 'Scaduto', 'red']];
 const TIPI_PAG = [['ACCONTO', 'Acconto'], ['SAL', 'SAL'], ['SALDO', 'Saldo'], ['ALTRO', 'Altro']];
 const STATI_PAG = [['PREVISTO', 'Previsto', 'grey'], ['PARZIALE', 'Parziale', 'amber'], ['INCASSATO', 'Incassato', 'green'], ['IN_RITARDO', 'In ritardo', 'red']];
@@ -368,6 +368,7 @@ const SIC_ESECUTRICE = { codice: 'SICUREZZA_ALLAPARI', nome: 'Sicurezza cantiere
   '[Prima di entrare in cantiere] Documenti di idoneità tecnico-professionale consegnati al committente: visura, DURC, DVR, POS, elenco lavoratori con attestati e idoneità, elenco attrezzature',
   '[Prima di entrare in cantiere] Nomina del direttore tecnico di cantiere e del preposto',
   '[Prima di entrare in cantiere] Verifica con il committente che notifica preliminare e nomine di CSP/CSE siano fatte',
+  '[Prima di entrare in cantiere] Se ci sono subappaltatori: documenti verificati (visura, DURC, patente, POS)',
   '[Persone e formazione] Tessera di riconoscimento per ogni lavoratore, con il codice anticontraffazione',
   '[Persone e formazione] Formazione generale e specifica edile in corso di validità',
   '[Persone e formazione] Preposto formato',
@@ -375,11 +376,20 @@ const SIC_ESECUTRICE = { codice: 'SICUREZZA_ALLAPARI', nome: 'Sicurezza cantiere
   '[Persone e formazione] Lavori in quota: DPI anticaduta e addestramento',
   '[Persone e formazione] Operatori di PLE, carrelli, gru e macchine: abilitazioni specifiche',
   '[Persone e formazione] Primo soccorso e antincendio: addetti presenti in cantiere',
+  '[Persone e formazione] Gas o refrigeranti: certificazioni richieste (es. F-gas)',
   '[Attrezzature e DPI] DPI consegnati con firma di ricevuta',
   '[Attrezzature e DPI] Libretti e verifiche periodiche di attrezzature, PLE e ponteggi',
   '[Attrezzature e DPI] Marcatura CE e manuali delle macchine',
   '[Attrezzature e DPI] Quadri elettrici mobili a norma e protetti',
+  '[Attrezzature e DPI] Impianto elettrico di cantiere: impianto di terra e dichiarazione di conformità',
+  '[Attrezzature e DPI] Ponteggio o trabattello: PiMUS, libretto, montaggio da personale formato',
+  '[Attrezzature e DPI] Cassetta di primo soccorso, estintori, segnaletica e numeri di emergenza esposti',
   '[Attrezzature e DPI] Ponteggi o opere provvisionali di altri: verificati, controllati e autorizzati dal CSE',
+  '[Apertura in cantiere (giorno 1)] Riunione con il CSE e consegna della documentazione',
+  '[Apertura in cantiere (giorno 1)] Verifica con il CSE di accessi, recinzione, percorsi, aree di stoccaggio, servizi igienici',
+  '[Apertura in cantiere (giorno 1)] Briefing ai lavoratori su rischi specifici, misure del PSC e vie di emergenza',
+  '[Apertura in cantiere (giorno 1)] Cartello di cantiere e tessere esposte',
+  '[Apertura in cantiere (giorno 1)] Coordinamento con le altre imprese sulle interferenze (spazi, tempi, energie)',
   '[Coordinamento con le altre imprese] Partecipazione alle riunioni del CSE e firma dei verbali',
   '[Coordinamento con le altre imprese] Cronoprogramma condiviso: chi lavora dove, quando, con quali mezzi',
   '[Coordinamento con le altre imprese] Interferenze censite: lavori sopra o sotto altri, carichi sospesi, polveri, rumore, passaggi',
@@ -487,6 +497,7 @@ const SIC_SUBAPPALTATRICE = { codice: 'SICUREZZA_SUBAPPALTATRICE', nome: 'Sicure
   '[Durante i lavori] Infortuni e quasi-infortuni comunicati subito all’affidataria',
   '[Durante i lavori] DURC e patente controllati alle scadenze (avvisa prima che scadano)',
   '[Durante i lavori] Sospensioni o allontanamenti ordinati per pericolo grave rispettati e documentati',
+  '[Durante i lavori] Ordini dell’affidataria conservati per iscritto (email, verbali, messaggi)',
   '[Fine lavori] Dichiarazione di conformità dell’impianto realizzato, con allegati obbligatori',
   '[Fine lavori] Manuali, schemi e istruzioni d’uso consegnati all’affidataria',
   '[Fine lavori] Documenti per il Fascicolo dell’opera consegnati all’affidataria',
@@ -511,7 +522,13 @@ const SIC_DL = { codice: 'SICUREZZA_DL', nome: 'Sicurezza e adempimenti (Direzio
   '[Fine lavori] Dichiarazioni di conformità degli impianti e allegati verificati',
   '[Fine lavori] Documenti per agibilità, catasto o pratiche energetiche predisposti, se previsti',
   '[Fine lavori] Certificato di regolare esecuzione o collaudo prodotto',
-  '[Fine lavori] Documentazione finale consegnata al committente'
+  '[Fine lavori] Documentazione finale consegnata al committente',
+  '[Punti di incontro con l’impresa] Avvio: la DL riceve i documenti di idoneità e il cronoprogramma; l’impresa riceve progetto, capitolato e nominativi',
+  '[Punti di incontro con l’impresa] Materiali: campioni e schede tecniche presentati, accettazione per iscritto prima della posa',
+  '[Punti di incontro con l’impresa] Varianti: nessuna modifica senza ordine scritto della DL (per impianti, schemi aggiornati)',
+  '[Punti di incontro con l’impresa] Avanzamento: SAL presentati dall’impresa e verificati dalla DL prima del pagamento',
+  '[Punti di incontro con l’impresa] Sicurezza: rischi visti dalla DL comunicati a CSE e impresa, e viceversa',
+  '[Punti di incontro con l’impresa] Fine lavori: DiCo e documenti consegnati dall’impresa e controllati dalla DL prima della chiusura'
 ] };
 const SIC_PER_RUOLO = {
   ESECUTRICE_ALLA_PARI: [SIC_ESECUTRICE],
