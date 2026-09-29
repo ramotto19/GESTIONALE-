@@ -2,7 +2,7 @@
    riaprire (con un messaggio, non con i dati) quando il dispositivo è offline.
    Non tocca mai le chiamate al backend (sono POST, qui gestiamo solo GET) né
    le richieste verso altri domini (Google Fonts, Apps Script, ecc.). */
-const CACHE = 'gestionale-impianti-v1';
+const CACHE = 'gestionale-impianti-v2';
 const SHELL = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', (e) => {
@@ -22,7 +22,10 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    /* cache: 'no-store' evita che il browser risponda con una copia HTTP già in cache invece di
+       andare davvero in rete: senza, dopo un aggiornamento dell'app un utente poteva continuare
+       a vedere la versione vecchia per giorni anche ricaricando la pagina. */
+    fetch(e.request, { cache: 'no-store' })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));
