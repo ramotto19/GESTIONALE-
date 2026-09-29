@@ -1363,11 +1363,20 @@ A.oreCsv = async (d) => {
 };
 
 /* ---------- elenco commesse leggibile dai dipendenti ---------- */
-let syncT = null;
+/* può dover scrivere una riga per ciascun dipendente: se due modifiche arrivano vicine (es. due
+   commesse create di seguito) non deve mai partire un secondo giro mentre il primo è ancora in
+   corso, altrimenti si accumulano tante scritture lente in coda e rallentano anche le azioni
+   dell'utente (stesso backend, stessa coda di scrittura) */
+let syncT = null, syncRunning = false, syncAgain = false;
 function maybeSync() {
   if (!S.admin || !db) return;
+  if (syncRunning) { syncAgain = true; return; }
   clearTimeout(syncT);
-  syncT = setTimeout(async () => {
+  syncT = setTimeout(runSync, 800);
+}
+async function runSync() {
+  syncRunning = true;
+  try {
     if (!S.loaded.commesse || !S.loaded.commesseElenco || !S.loaded.clienti) return;
     const want = {};
     D('commesse').filter((c) => ATTIVE.includes(c.stato)).forEach((c) => { want[c.id] = { codice: c.codice, label: commessaLabel(c), stato: c.stato }; });
@@ -1379,7 +1388,10 @@ function maybeSync() {
       if (JSON.stringify(s) !== JSON.stringify(a.settimana || [])) p.settimana = s;
       if (Object.keys(p).length) { try { await db.doc('accessi/' + a.id).update(p); } catch (e) { /* ignora */ } }
     }
-  }, 800);
+  } finally {
+    syncRunning = false;
+    if (syncAgain) { syncAgain = false; maybeSync(); }
+  }
 }
 /* ---------- Personalizza: pagine, campi, categorie, iter ed elenchi modificabili dall'app ---------- */
 const CFG = (id) => G('impostazioni', id) || {};
@@ -1993,12 +2005,22 @@ window.__logout = () => {
 };
 A.signout = () => window.__logout();
 
+/* Google Identity Services va inizializzato una sola volta: da lì in poi si può richiamare
+   google.accounts.id.prompt() in qualunque momento (anche a sessione già avviata, per
+   rinnovare il token prima che scada) senza doverlo reinizializzare ogni volta. */
+let GIS_READY = false;
+function initGis() {
+  if (GIS_READY) return Promise.resolve();
+  return loadGis().then(() => {
+    google.accounts.id.initialize({ client_id: CONFIG.CLIENT_ID, callback: onGoogleCredential, auto_select: true, cancel_on_tap_outside: false });
+    GIS_READY = true;
+  });
+}
 function showLogin(err) {
   const el = $('#app'); if (!el) return;
   el.innerHTML = '<div class="center card"><h1 style="font-size:28px">Gestionale Impianti</h1><p class="muted">Accedi con il tuo account Google per continuare.</p><div id="gsiBtn" style="display:flex;justify-content:center;margin-top:10px"></div>' + (err ? '<p class="err" style="margin-top:10px">' + esc(err) + '</p>' : '') + '</div>';
   if (!CONFIG.CLIENT_ID || !CONFIG.SCRIPT_URL) { $('.center.card').insertAdjacentHTML('beforeend', '<p class="alert amber" style="margin-top:10px">Configura CLIENT_ID e SCRIPT_URL in fondo a index.html: vedi il README.</p>'); return; }
-  loadGis().then(() => {
-    google.accounts.id.initialize({ client_id: CONFIG.CLIENT_ID, callback: onGoogleCredential, auto_select: true, cancel_on_tap_outside: false });
+  initGis().then(() => {
     google.accounts.id.renderButton($('#gsiBtn'), { theme: 'outline', size: 'large', text: 'signin_with', locale: 'it' });
     /* se hai già effettuato l'accesso in precedenza su questo sito, prova ad entrare da solo senza bisogno di cliccare */
     google.accounts.id.prompt();
@@ -2020,6 +2042,14 @@ async function whoamiResilient() {
   throw lastErr;
 }
 async function onGoogleCredential(resp) {
+  if (S.uid) {
+    /* la sessione è già avviata: questo è solo un rinnovo silenzioso del token (richiesto
+       periodicamente da boot(), vedi sotto) prima che scada, non un nuovo accesso — non deve
+       toccare in alcun modo la pagina che l'utente sta guardando */
+    ID_TOKEN = resp.credential;
+    try { await whoami(true); saveToken(ID_TOKEN); } catch (e) { /* se fallisce ci si riprova al prossimo rinnovo */ }
+    return;
+  }
   ID_TOKEN = resp.credential;
   const el = $('#app'); if (el) el.innerHTML = '<div class="empty">Accesso in corso…</div>';
   try { await whoamiResilient(); saveToken(ID_TOKEN); boot(); }
@@ -2028,11 +2058,16 @@ async function onGoogleCredential(resp) {
     showLogin(e.transient ? 'Il server non risponde al momento. Riprova tra qualche istante.' : (e.message || 'Accesso non riuscito.'));
   }
 }
-/* riprova ad entrare da solo con il token salvato sul dispositivo, prima di mostrare il login */
+/* riprova ad entrare da solo con il token salvato sul dispositivo, prima di mostrare il login.
+   Mostra subito un messaggio di caricamento invece di lasciare la pagina bianca: se il
+   dispositivo si è solo riavviato/ricaricato da solo (succede, specie da installata), l'utente
+   non deve avere l'impressione di essere stato disconnesso mentre il tentativo è in corso. */
 async function tryResume() {
   const saved = loadSavedToken();
   if (!saved) { showLogin(); return; }
   ID_TOKEN = saved;
+  initGis().catch(() => { /* il rinnovo silenzioso del token semplicemente non sarà disponibile */ });
+  const el0 = $('#app'); if (el0) el0.innerHTML = '<div class="empty">Accesso in corso…</div>';
   try { await whoamiResilient(); boot(); }
   catch (e) {
     /* solo un vero rifiuto del server invalida la sessione salvata: un errore temporaneo
@@ -2081,6 +2116,11 @@ async function boot() {
   if (S.admin) COLS.forEach(subscribe); else { S.route = 'mieore'; subscribeUser(); }
   if (S.uid) watchMio(S.mese);
   setInterval(() => { if (S.admin && !FORM && !document.hidden) { if (S.route === 'ore') loadAllOre(S.mese || meseOggi(), true); else if (S.route === 'mieore') ensureView(); } }, 60000);
+  /* il token Google dura circa un'ora: senza rinnovarlo, prima o poi ogni chiamata al backend
+     verrebbe rifiutata e l'utente si ritroverebbe disconnesso a metà lavoro. Lo si rinnova da
+     solo, in background, ben prima che scada — così una sessione aperta resta valida finché
+     resta aperta, senza dover mai rifare l'accesso. */
+  if (!window.__tokenRefreshTimer) window.__tokenRefreshTimer = setInterval(() => { try { google.accounts.id.prompt(); } catch (e) { /* ci riproverà al giro successivo */ } }, 40 * 60 * 1000);
   queueRender();
 }
 if (typeof window !== 'undefined' && !window.__TEST__) tryResume();
