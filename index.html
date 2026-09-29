@@ -621,11 +621,12 @@ function tabPanoramica(c) {
 /* --- iter --- */
 function tabIter(c) {
   const it = iterCount(c);
+  const n = (c.iter || []).length;
   const mancano = DEFAULT_ITER.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
   const addBtn = mancano.length ? '<div style="margin-bottom:14px"><button class="btn sm" data-a="iterPassAdd" data-id="' + esc(c.id) + '">+ Aggiungi passaggio dal modello</button></div>' : '';
   return '<div class="muted" style="margin-bottom:12px">' + it[0] + ' di ' + it[1] + ' passaggi completati. I passaggi contrassegnati come bloccanti condizionano planning e fatturazione.</div>' + addBtn + '<div class="stack">' + (c.iter || []).map((s, i) => {
     const done = (s.voci || []).filter((v) => v.done).length;
-    return '<section class="card"><div class="ch"><div class="row"><span class="dot">' + (i + 1) + '</span><h3>' + esc(s.nome) + '</h3>' + (s.bloccante ? bd('Bloccante', 'dark') : '') + '<span class="small muted">' + done + '/' + (s.voci || []).length + ' voci</span></div><div class="row"><select data-c="iterStato" data-id="' + esc(c.id) + '" data-i="' + i + '" aria-label="Stato di ' + esc(s.nome) + '" style="width:auto">' + STATI_STEP.map((x) => '<option value="' + x[0] + '"' + (s.stato === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>').join('') + '</select><button class="btn sm" data-a="iterEdit" data-id="' + esc(c.id) + '" data-i="' + i + '">Dettagli</button></div></div>' +
+    return '<section class="card"><div class="ch"><div class="row"><span class="dot">' + (i + 1) + '</span><h3>' + esc(s.nome) + '</h3>' + (s.bloccante ? bd('Bloccante', 'dark') : '') + '<span class="small muted">' + done + '/' + (s.voci || []).length + ' voci</span></div><div class="row"><button class="btn sm" data-a="iterPassUp" data-id="' + esc(c.id) + '" data-i="' + i + '" aria-label="Sposta su"' + (!i ? ' disabled' : '') + '>↑</button><button class="btn sm" data-a="iterPassDown" data-id="' + esc(c.id) + '" data-i="' + i + '" aria-label="Sposta giù"' + (i === n - 1 ? ' disabled' : '') + '>↓</button><select data-c="iterStato" data-id="' + esc(c.id) + '" data-i="' + i + '" aria-label="Stato di ' + esc(s.nome) + '" style="width:auto">' + STATI_STEP.map((x) => '<option value="' + x[0] + '"' + (s.stato === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>').join('') + '</select><button class="btn sm" data-a="iterEdit" data-id="' + esc(c.id) + '" data-i="' + i + '">Dettagli</button></div></div>' +
       (s.responsabile || s.dataPrevista || s.note ? '<div class="small muted">' + [s.responsabile ? 'Responsabile: ' + esc(s.responsabile) : '', s.dataPrevista ? 'Prevista: ' + esc(fmtD(s.dataPrevista)) : '', s.note ? esc(s.note) : ''].filter(Boolean).join(' · ') + '</div>' : '') +
       '<div>' + (s.voci || []).map((v, j) => '<div class="vc' + (v.done ? ' done' : '') + '"><label><input type="checkbox" data-c="iterVoce" data-id="' + esc(c.id) + '" data-i="' + i + '" data-j="' + j + '"' + (v.done ? ' checked' : '') + '><span>' + esc(v.t) + '</span></label><button class="btn sm" data-a="iterVoceDel" data-id="' + esc(c.id) + '" data-i="' + i + '" data-j="' + j + '" aria-label="Elimina voce">×</button></div>').join('') + '</div>' +
       '<div><button class="btn sm" data-a="iterVoceAdd" data-id="' + esc(c.id) + '" data-i="' + i + '">+ Aggiungi voce</button></div></section>';
@@ -650,8 +651,17 @@ C.iterVoce = async (d, v, el) => {
 A.iterEdit = (d) => { const c = G('commesse', d.id), s = c.iter[+d.i]; openForm({ title: s.nome, values: s, fields: [{ k: 'responsabile', l: 'Responsabile', half: true }, { k: 'dataPrevista', l: 'Data prevista', t: 'date', half: true }, { k: 'note', l: 'Note', t: 'textarea' }, { k: 'bloccante', l: 'Passaggio bloccante', t: 'checkbox' }], onSave: async (v) => { const n = clone(c.iter); Object.assign(n[+d.i], v); await patch('commesse', c.id, { iter: n }); } }); };
 A.iterVoceAdd = (d) => { const c = G('commesse', d.id); openForm({ title: 'Nuova voce di checklist', fields: [{ k: 't', l: 'Voce', req: true }], onSave: async (v) => { const n = clone(c.iter); n[+d.i].voci.push({ t: v.t, done: false }); if (n[+d.i].stato === 'COMPLETATO') n[+d.i].stato = 'IN_CORSO'; await patch('commesse', c.id, { iter: n }); } }); };
 A.iterVoceDel = async (d) => { const c = G('commesse', d.id); if (!(await confirmBox('Eliminare questa voce?', 'Elimina'))) return; const n = clone(c.iter); n[+d.i].voci.splice(+d.j, 1); await patch('commesse', c.id, { iter: n }); };
+async function iterPassMove(d, dir) {
+  const c = G('commesse', d.id), n = clone(c.iter || []), i = +d.i, j = i + dir;
+  if (j < 0 || j >= n.length) return;
+  const t = n[i]; n[i] = n[j]; n[j] = t;
+  try { await patch('commesse', c.id, { iter: n }); } catch (e) { /* già segnalato */ }
+}
+A.iterPassUp = (d) => iterPassMove(d, -1);
+A.iterPassDown = (d) => iterPassMove(d, 1);
 /* aggiunge a una commessa già esistente un passaggio del modello che non aveva ancora (es. un
-   passaggio introdotto in Personalizza dopo la creazione della commessa) */
+   passaggio introdotto in Personalizza dopo la creazione della commessa), inserendolo nella
+   posizione che ha nel modello rispetto ai passaggi già presenti, non sempre in fondo */
 A.iterPassAdd = (d) => {
   const c = G('commesse', d.id), mancano = DEFAULT_ITER.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
   if (!mancano.length) return;
@@ -659,8 +669,11 @@ A.iterPassAdd = (d) => {
     title: 'Aggiungi passaggio dal modello', fields: [{ k: 'codice', l: 'Passaggio', t: 'select', req: true, opts: mancano.map((s) => [s.codice, s.nome]) }],
     onSave: async (v) => {
       const s = DEFAULT_ITER.find((x) => x.codice === v.codice); if (!s) return;
-      const n = clone(c.iter || []);
-      n.push({ codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t: t, done: false })) });
+      const nuovo = { codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t: t, done: false })) };
+      const n = clone(c.iter || []), posModello = DEFAULT_ITER.findIndex((x) => x.codice === s.codice);
+      let ins = n.length;
+      for (let i = 0; i < n.length; i++) { const pi = DEFAULT_ITER.findIndex((x) => x.codice === n[i].codice); if (pi > posModello) { ins = i; break; } }
+      n.splice(ins, 0, nuovo);
       await patch('commesse', c.id, { iter: n });
     }
   });
@@ -2146,33 +2159,45 @@ function subscribe(col) {
     S.data[col] = m; S.loaded[col] = true; if (col === 'impostazioni') applyConfig(); queueRender();
     if (['commesse', 'commesseElenco', 'clienti', 'assegnazioni', 'assegnazioniG', 'squadre', 'accessi'].includes(col)) maybeSync();
     if (col === 'accessi') { resolveProf(); if (S.route === 'ore' && !S.oreLoading) loadAllOre(S.mese || meseOggi(), true); }
-    if (col === 'categorie') seedCategorieDefault();
+    if (col === 'categorie' || col === 'impostazioni') seedCategorieDefault();
   }, (err) => { console.warn('db', col, err); S.data[col] = S.data[col] || {}; S.loaded[col] = true; queueRender(); });
 }
 /* la prima volta che l'amministratore arriva su Documentale senza aver ancora creato nessuna
    categoria, gliene propone alcune di base (con sottocategorie, dove si archiviano davvero i
    documenti) così può iniziare subito a caricare file invece di dover prima configurare tutto
-   da Personalizza. Scatta una sola volta: appena esiste anche una sola categoria non si ripete. */
+   da Personalizza. Se in seguito si aggiunge una nuova categoria di base a questo elenco, viene
+   creata anche per chi ha già le altre: si tiene traccia di quelle già proposte (impostazioni →
+   categorieSeed) così una categoria di base che l’amministratore ha eliminato di proposito
+   non torna indietro da sola al giro successivo. */
 const DEFAULT_CATEGORIE = [
   { nome: 'Sicurezza', figli: ['Procedure e istruzioni di sicurezza', 'DPI e schede tecniche', 'Formazione e corsi'] },
   { nome: 'Mezzi e attrezzature', figli: ['Libretti e manuali', 'Manutenzioni e verifiche'] },
   { nome: 'Certificazioni', figli: ['Certificazioni di prodotto', 'Certificazioni di sistema (ISO…)'] },
   { nome: 'Sostenibilità', figli: ['Politiche e report', 'Gestione rifiuti'] },
+  { nome: 'Amministrazione e contabilità', figli: ['Contratti e corrispondenza', 'Fatture e documenti contabili', 'Adempimenti fiscali e tributari'] },
   { nome: 'Altri documenti', figli: ['Altro'] }
 ];
 let categorieSeeding = false;
 async function seedCategorieDefault() {
-  if (!S.admin || !db || categorieSeeding || D('categorie').length) return;
+  if (!S.admin || !db || categorieSeeding || !S.loaded.categorie || !S.loaded.impostazioni) return;
+  const fatte = CFG('categorieSeed').fatte || [];
+  const mancano = DEFAULT_CATEGORIE.filter((r) => !fatte.includes('cat-' + slug(r.nome)));
+  if (!mancano.length) return;
   categorieSeeding = true;
   try {
-    let ord = 1;
-    for (const r of DEFAULT_CATEGORIE) {
+    let ord = D('categorie').filter((x) => !x.parentId).length + 1;
+    const nuoviCodici = [];
+    for (const r of mancano) {
       const rid = 'cat-' + slug(r.nome);
-      await db.doc('categorie/' + rid).set({ nome: r.nome, parentId: null, ordine: ord++ });
-      let ordC = 1;
-      for (const f of r.figli) { await db.doc('categorie/cat-' + slug(f)).set({ nome: f, parentId: rid, ordine: ordC++ }); }
+      nuoviCodici.push(rid);
+      if (!G('categorie', rid)) {
+        await db.doc('categorie/' + rid).set({ nome: r.nome, parentId: null, ordine: ord++ });
+        let ordC = 1;
+        for (const f of r.figli) { const cid = 'cat-' + slug(f); if (!G('categorie', cid)) await db.doc('categorie/' + cid).set({ nome: f, parentId: rid, ordine: ordC }); ordC++; }
+      }
     }
-    toast('Ho creato alcune categorie di base in Documentale: puoi già iniziare a caricare i documenti (le puoi rinominare o cambiare da Personalizza → Categorie documenti).');
+    await db.doc('impostazioni/categorieSeed').set({ fatte: fatte.concat(nuoviCodici) });
+    toast('Documentale: aggiunte le categorie di base ' + mancano.map((r) => r.nome).join(', ') + '. Puoi già caricare i documenti (le puoi rinominare o cambiare da Personalizza → Categorie documenti).');
   } catch (e) { /* se qualcosa fallisce a metà, riprova al prossimo caricamento della pagina */ }
   finally { categorieSeeding = false; }
 }
