@@ -323,7 +323,7 @@ const TIPI_CANTIERE = ['Civile', 'Industriale', 'Commerciale', 'Pubblico', 'Resi
 const STATI_STEP = [['DA_FARE', 'Da fare', 'grey'], ['IN_CORSO', 'In corso', 'blue'], ['IN_ATTESA', 'In attesa', 'amber'], ['COMPLETATO', 'Fatto', 'green'], ['NON_APPLICABILE', 'Non applicabile', 'grey']];
 const TIPI_AB = [['FORMAZIONE_GENERALE', 'Formazione generale', null], ['FORMAZIONE_SPECIFICA', 'Formazione specifica', 60], ['AGGIORNAMENTO_SICUREZZA', 'Aggiornamento sicurezza', 60], ['IDONEITA_SANITARIA', 'Idoneità sanitaria', 12], ['PES_PAV_PEI', 'PES / PAV / PEI', 60], ['LAVORI_IN_QUOTA', 'Lavori in quota', 60], ['PLE', 'Uso PLE / cestello', 60], ['ANTINCENDIO', 'Antincendio (addetti)', 60], ['PRIMO_SOCCORSO', 'Primo soccorso', 36], ['FGAS', 'F-gas (personale)', null], ['SPAZI_CONFINATI', 'Spazi confinati', 60], ['ALTRO', 'Altro', null]];
 const TIPI_DOC_AZ = [['DURC', 'DURC', null], ['VISURA_CAMERALE', 'Visura camerale', null], ['ABILITAZIONE_INSTALLATORE', 'Abilitazione installatore (DM 37/08)', null], ['CERTIFICAZIONE_FGAS', 'Certificazione F-gas impresa', null], ['ATTESTAZIONE_SOA', 'Attestazione SOA', null], ['CERTIFICAZIONE_ISO', 'Certificazione ISO', null], ['ISCRIZIONE_ALBO', 'Iscrizione ad albo', null], ['ATTESTAZIONE_ANTINCENDIO', 'Attestazione antincendio', null], ['PATENTE_CREDITI', 'Patente a crediti', null], ['DVR', 'DVR - valutazione dei rischi', null], ['NOMINA_RSPP', 'Nomina RSPP', null], ['MEDICO_COMPETENTE', 'Nomina medico competente', null], ['NOMINA_PRIMO_SOCCORSO', 'Nomina addetti primo soccorso', null], ['NOMINA_ANTINCENDIO', 'Nomina addetti antincendio', null], ['NOMINA_RLS', 'Elezione/designazione RLS', null], ['CCNL_ORGANICO', 'CCNL applicato e organico medio annuo', null], ['ALTRO', 'Altro', null]];
-const TIPI_SIC = [['POS', 'POS'], ['DVR', 'DVR'], ['DUVRI', 'DUVRI'], ['PSC', 'PSC'], ['NOTIFICA_PRELIMINARE', 'Notifica preliminare'], ['VERBALE_COORDINAMENTO', 'Verbale di coordinamento'], ['ALTRO', 'Altro']];
+const TIPI_SIC = [['POS', 'POS'], ['DVR', 'DVR'], ['DUVRI', 'DUVRI'], ['PSC', 'PSC'], ['PRESA_VISIONE_PSC', 'Presa visione PSC firmata'], ['NOTIFICA_PRELIMINARE', 'Notifica preliminare'], ['VERBALE_COORDINAMENTO', 'Verbale di coordinamento'], ['CONSEGNA_POS_CSE', 'Ricevuta consegna POS al CSE'], ['NOMINA_DIRETTORE_PREPOSTO', 'Nomina direttore tecnico di cantiere e preposto'], ['CONSULTAZIONE_RLS', 'Verbale consultazione RLS'], ['IDONEITA_TECNICO_PROF', 'Idoneità tecnico-professionale (visura, DURC, DVR, elenco lavoratori e attrezzature)'], ['FASCICOLO_OPERA', 'Documenti per il Fascicolo dell’opera'], ['ALTRO', 'Altro']];
 const STATI_SIC = [['DA_REDIGERE', 'Da redigere', 'grey'], ['IN_REVISIONE', 'In revisione', 'amber'], ['APPROVATO', 'Approvato', 'green'], ['SCADUTO', 'Scaduto', 'red']];
 const TIPI_PAG = [['ACCONTO', 'Acconto'], ['SAL', 'SAL'], ['SALDO', 'Saldo'], ['ALTRO', 'Altro']];
 const STATI_PAG = [['PREVISTO', 'Previsto', 'grey'], ['PARZIALE', 'Parziale', 'amber'], ['INCASSATO', 'Incassato', 'green'], ['IN_RITARDO', 'In ritardo', 'red']];
@@ -621,7 +621,9 @@ function tabPanoramica(c) {
 /* --- iter --- */
 function tabIter(c) {
   const it = iterCount(c);
-  return '<div class="muted" style="margin-bottom:12px">' + it[0] + ' di ' + it[1] + ' passaggi completati. I passaggi contrassegnati come bloccanti condizionano planning e fatturazione.</div><div class="stack">' + (c.iter || []).map((s, i) => {
+  const mancano = DEFAULT_ITER.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
+  const addBtn = mancano.length ? '<div style="margin-bottom:14px"><button class="btn sm" data-a="iterPassAdd" data-id="' + esc(c.id) + '">+ Aggiungi passaggio dal modello</button></div>' : '';
+  return '<div class="muted" style="margin-bottom:12px">' + it[0] + ' di ' + it[1] + ' passaggi completati. I passaggi contrassegnati come bloccanti condizionano planning e fatturazione.</div>' + addBtn + '<div class="stack">' + (c.iter || []).map((s, i) => {
     const done = (s.voci || []).filter((v) => v.done).length;
     return '<section class="card"><div class="ch"><div class="row"><span class="dot">' + (i + 1) + '</span><h3>' + esc(s.nome) + '</h3>' + (s.bloccante ? bd('Bloccante', 'dark') : '') + '<span class="small muted">' + done + '/' + (s.voci || []).length + ' voci</span></div><div class="row"><select data-c="iterStato" data-id="' + esc(c.id) + '" data-i="' + i + '" aria-label="Stato di ' + esc(s.nome) + '" style="width:auto">' + STATI_STEP.map((x) => '<option value="' + x[0] + '"' + (s.stato === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>').join('') + '</select><button class="btn sm" data-a="iterEdit" data-id="' + esc(c.id) + '" data-i="' + i + '">Dettagli</button></div></div>' +
       (s.responsabile || s.dataPrevista || s.note ? '<div class="small muted">' + [s.responsabile ? 'Responsabile: ' + esc(s.responsabile) : '', s.dataPrevista ? 'Prevista: ' + esc(fmtD(s.dataPrevista)) : '', s.note ? esc(s.note) : ''].filter(Boolean).join(' · ') + '</div>' : '') +
@@ -648,6 +650,21 @@ C.iterVoce = async (d, v, el) => {
 A.iterEdit = (d) => { const c = G('commesse', d.id), s = c.iter[+d.i]; openForm({ title: s.nome, values: s, fields: [{ k: 'responsabile', l: 'Responsabile', half: true }, { k: 'dataPrevista', l: 'Data prevista', t: 'date', half: true }, { k: 'note', l: 'Note', t: 'textarea' }, { k: 'bloccante', l: 'Passaggio bloccante', t: 'checkbox' }], onSave: async (v) => { const n = clone(c.iter); Object.assign(n[+d.i], v); await patch('commesse', c.id, { iter: n }); } }); };
 A.iterVoceAdd = (d) => { const c = G('commesse', d.id); openForm({ title: 'Nuova voce di checklist', fields: [{ k: 't', l: 'Voce', req: true }], onSave: async (v) => { const n = clone(c.iter); n[+d.i].voci.push({ t: v.t, done: false }); if (n[+d.i].stato === 'COMPLETATO') n[+d.i].stato = 'IN_CORSO'; await patch('commesse', c.id, { iter: n }); } }); };
 A.iterVoceDel = async (d) => { const c = G('commesse', d.id); if (!(await confirmBox('Eliminare questa voce?', 'Elimina'))) return; const n = clone(c.iter); n[+d.i].voci.splice(+d.j, 1); await patch('commesse', c.id, { iter: n }); };
+/* aggiunge a una commessa già esistente un passaggio del modello che non aveva ancora (es. un
+   passaggio introdotto in Personalizza dopo la creazione della commessa) */
+A.iterPassAdd = (d) => {
+  const c = G('commesse', d.id), mancano = DEFAULT_ITER.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
+  if (!mancano.length) return;
+  openForm({
+    title: 'Aggiungi passaggio dal modello', fields: [{ k: 'codice', l: 'Passaggio', t: 'select', req: true, opts: mancano.map((s) => [s.codice, s.nome]) }],
+    onSave: async (v) => {
+      const s = DEFAULT_ITER.find((x) => x.codice === v.codice); if (!s) return;
+      const n = clone(c.iter || []);
+      n.push({ codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t: t, done: false })) });
+      await patch('commesse', c.id, { iter: n });
+    }
+  });
+};
 
 /* --- cantiere --- */
 function tabCantiere(c) {
