@@ -2062,6 +2062,11 @@ async function pollOnce() {
     pollCache = r.cols || {};
     Object.keys(collListeners).forEach(dispatchCollection);
   } catch (e) {
+    /* un rifiuto vero (non un problema di rete/risposta momentaneo) durante il polling normale
+       vuol dire quasi sempre token scaduto: senza reagire qui, l'app smette silenziosamente di
+       aggiornarsi finché non si ricarica la pagina, ed è lì che si scopre di essere stati
+       disconnessi — meglio tentare subito un rinnovo silenzioso, prima che l'utente se ne accorga */
+    if (!e.transient) maybeRefreshToken(true);
     Object.keys(collListeners).forEach((col) => {
       const reg = collListeners[col];
       if (reg.last == null) { reg.last = '{}'; reg.errcbs.forEach((ecb) => ecb(e)); }
@@ -2094,9 +2099,16 @@ function ensurePoll() {
   })();
 }
 function stopPoll() { pollTimer = null; pollRunning = false; skipFirstPoll = false; Object.keys(collListeners).forEach((k) => delete collListeners[k]); pollCache = null; }
-/* tornando visibile, aggiorna subito invece di aspettare fino a POLL_MS */
+/* tornando visibile, aggiorna subito invece di aspettare fino a POLL_MS; e controlla anche se il
+   token va rinnovato — su telefono, dopo che l'app è stata in background a lungo, il rinnovo
+   periodico può non essere scattato in tempo (i timer vengono messi in pausa in background) */
 if (typeof document !== 'undefined') {
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && pollTimer && !pollRunning) pollOnce(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      if (pollTimer && !pollRunning) pollOnce();
+      maybeRefreshToken();
+    }
+  });
 }
 
 db = {
@@ -2378,6 +2390,22 @@ function initGis() {
     GIS_READY = true;
   });
 }
+/* Il rinnovo silenzioso (google.accounts.id.prompt() senza interazione) non è affidabile al
+   100%: su telefono, se l'app resta in background a lungo, il browser mette in pausa i timer
+   JavaScript, quindi il rinnovo periodico può semplicemente non scattare mai in tempo prima
+   che il token scada (circa un'ora) — l'utente si ritrova "buttato fuori" al rientro. Per
+   questo il rinnovo va tentato anche quando la pagina torna visibile (oltre che a intervalli),
+   e subito dopo un rifiuto vero del backend durante l'uso normale (vedi pollOnce). */
+let lastRefreshOk = 0, refreshInFlight = false;
+const TOKEN_STALE_MS = 25 * 60 * 1000;
+function maybeRefreshToken(force) {
+  if (!S.uid || refreshInFlight) return;
+  if (!force && Date.now() - lastRefreshOk < TOKEN_STALE_MS) return;
+  refreshInFlight = true;
+  initGis().then(() => { try { google.accounts.id.prompt(); } catch (e) { /* ci riproverà al prossimo tentativo */ } })
+    .catch(() => {})
+    .finally(() => { setTimeout(() => { refreshInFlight = false; }, 5000); });
+}
 function showLogin(err) {
   const el = $('#app'); if (!el) return;
   el.innerHTML = '<div class="center card"><h1 style="font-size:28px">Gestionale Impianti</h1><p class="muted">Accedi con il tuo account Google per continuare.</p><div id="gsiBtn" style="display:flex;justify-content:center;margin-top:10px"></div>' + (err ? '<p class="err" style="margin-top:10px">' + esc(err) + '</p>' : '') + '</div>';
@@ -2409,7 +2437,7 @@ async function onGoogleCredential(resp) {
        periodicamente da boot(), vedi sotto) prima che scada, non un nuovo accesso — non deve
        toccare in alcun modo la pagina che l'utente sta guardando */
     ID_TOKEN = resp.credential;
-    try { await whoami(true); saveToken(ID_TOKEN); } catch (e) { /* se fallisce ci si riprova al prossimo rinnovo */ }
+    try { await whoami(true); saveToken(ID_TOKEN); lastRefreshOk = Date.now(); } catch (e) { /* se fallisce ci si riprova al prossimo rinnovo */ }
     return;
   }
   ID_TOKEN = resp.credential;
@@ -2430,7 +2458,7 @@ async function tryResume() {
   ID_TOKEN = saved;
   initGis().catch(() => { /* il rinnovo silenzioso del token semplicemente non sarà disponibile */ });
   const el0 = $('#app'); if (el0) el0.innerHTML = '<div class="empty">Accesso in corso…</div>';
-  try { await whoamiResilient(); boot(); }
+  try { await whoamiResilient(); lastRefreshOk = Date.now(); boot(); }
   catch (e) {
     /* solo un vero rifiuto del server invalida la sessione salvata: un errore temporaneo
        lascia il token dov'è, così il prossimo tentativo (anche solo ricaricando la pagina)
@@ -2438,6 +2466,11 @@ async function tryResume() {
     if (!e.transient) clearSavedToken();
     ID_TOKEN = null;
     showLogin(e.transient ? 'Il server non risponde al momento. Riprova tra qualche istante.' : undefined);
+    /* il token salvato può essere scaduto (caso più comune di "mi butta fuori") ma la sessione
+       Google nel browser è quasi sempre ancora valida: un ultimo tentativo silenzioso, in
+       parallelo alla schermata di accesso appena mostrata, spesso rientra da solo senza che
+       l'utente debba cliccare nulla — se non riesce, resta comunque il pulsante di accesso. */
+    if (!e.transient) { try { google.accounts.id.prompt(); } catch (e2) { /* niente da fare, resta il pulsante */ } }
   }
 }
 
@@ -2513,6 +2546,7 @@ async function boot() {
   try { w = await whoami(); } catch (e) { if (!e.transient) clearSavedToken(); ID_TOKEN = null; showLogin(e.transient ? 'Il server non risponde al momento. Riprova tra qualche istante.' : (e.message || 'Accesso non riuscito.')); return; }
   if (w.unauthorized) { S.unauthorized = true; S.pendingEmail = w.email; render(); return; }
   S.admin = w.role === 'admin'; S.me = w.name || ''; S.uid = w.email;
+  lastRefreshOk = Date.now();
   S.mese = meseOggi();
   setTimeout(() => { S.late = true; queueRender(); }, 6000);
   const pref = await prefetch;
@@ -2524,7 +2558,7 @@ async function boot() {
      verrebbe rifiutata e l'utente si ritroverebbe disconnesso a metà lavoro. Lo si rinnova da
      solo, in background, ben prima che scada — così una sessione aperta resta valida finché
      resta aperta, senza dover mai rifare l'accesso. */
-  if (!window.__tokenRefreshTimer) window.__tokenRefreshTimer = setInterval(() => { try { google.accounts.id.prompt(); } catch (e) { /* ci riproverà al giro successivo */ } }, 40 * 60 * 1000);
+  if (!window.__tokenRefreshTimer) window.__tokenRefreshTimer = setInterval(() => maybeRefreshToken(true), 20 * 60 * 1000);
   queueRender();
 }
 if (typeof window !== 'undefined' && !window.__TEST__) tryResume();
