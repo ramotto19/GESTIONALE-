@@ -185,7 +185,7 @@ const byStr = (f) => (a, b) => String(f(a) || '').localeCompare(String(f(b) || '
 
 /* ---------- stato ---------- */
 const COLS = ['clienti', 'commesse', 'dipendenti', 'squadre', 'assegnazioni', 'assegnazioniG', 'tipiLavoro', 'categorie', 'docAzienda', 'assicurazioni', 'mezzi', 'documenti', 'verbali', 'scadenze', 'riservato', 'accessi', 'impostazioni', 'commesseElenco', 'registri'];
-const S = { route: 'dashboard', id: null, tab: null, q: '', fstato: '', week: null, calY: null, calM: null, ftipo: '', dcat: '', ptab: 'dipendenti', atab: 'documenti', data: {}, loaded: {}, admin: false, me: '', uid: null, late: false, offline: false, mese: null, otab: 'riepilogo', opers: null, myOre: { mese: null, righe: [], loaded: false }, oreAll: {}, oreLoading: false, prof: {} };
+const S = { route: 'dashboard', id: null, tab: null, q: '', fstato: '', week: null, calY: null, calM: null, ftipo: '', dcat: '', ptab: 'dipendenti', atab: 'documenti', data: {}, loaded: {}, admin: false, me: '', uid: null, late: false, offline: false, syncTrouble: false, mese: null, otab: 'riepilogo', opers: null, myOre: { mese: null, righe: [], loaded: false }, oreAll: {}, oreLoading: false, prof: {} };
 const D = (c) => Object.values(S.data[c] || {});
 const G = (c, id) => (S.data[c] || {})[id];
 let db = null, assets = null, user = null, dl = null;
@@ -647,8 +647,9 @@ function shell() {
   if (S.offline) return '<div class="center card"><h2>Accesso non configurato</h2><p class="muted">Manca la configurazione di CLIENT_ID o SCRIPT_URL in fondo al file index.html. Vedi il README per le istruzioni.</p></div>';
   if (S.unauthorized) return '<div class="center card"><h2>Accesso non autorizzato</h2><p class="muted">L\u2019account <b>' + esc(S.pendingEmail || '') + '</b> non \u00e8 ancora abilitato. Chiedi all\u2019amministratore di aggiungerti da \u00abOre del personale \u203a Accessi\u00bb, oppure verifica che il backend sia configurato correttamente se sei il primo utente.</p><button class="btn" data-a="signout">Cambia account</button></div>';
   const ready = neededCols().every((c) => S.loaded[c]) || S.late;
+  const trouble = S.syncTrouble ? '<div class="alert red" style="margin-bottom:16px">Il backend non risponde da un po’: quello che vedi potrebbe non essere aggiornato. <button class="btn sm" data-a="reload" style="margin-left:8px">Ricarica la pagina</button></div>' : '';
   return '<div class="app"><nav class="side" aria-label="Principale"><div class="brand">GESTIONALE<br>IMPIANTI</div>' + navItems().map((n) => '<button class="nv' + (navOn(n[0], n[2]) ? ' on' : '') + '" data-a="go" data-r="' + n[0] + '"' + (n[2] ? ' data-id="' + esc(n[2]) + '"' : '') + '>' + esc(n[1]) + '</button>').join('') +
-    '<div class="sidefoot"><div>' + esc(S.me || 'Utente') + ' · ' + (S.admin ? 'Amministratore' : 'Dipendente') + '</div>' + (window.__logout ? '<button data-a="logout">Esci</button>' : '') + (S.admin ? '<button data-a="export">Esporta dati (JSON)</button><button data-a="import">Importa dati (JSON)</button>' : '') + (S.admin && hasDemo() ? '<button data-a="delDemo">Elimina dati di esempio</button>' : '') + '</div></nav><main class="main" id="main">' + (ready ? view() : '<div class="empty">Caricamento dei dati…</div>') + '</main></div>';
+    '<div class="sidefoot"><div>' + esc(S.me || 'Utente') + ' · ' + (S.admin ? 'Amministratore' : 'Dipendente') + '</div>' + (window.__logout ? '<button data-a="logout">Esci</button>' : '') + (S.admin ? '<button data-a="export">Esporta dati (JSON)</button><button data-a="import">Importa dati (JSON)</button>' : '') + (S.admin && hasDemo() ? '<button data-a="delDemo">Elimina dati di esempio</button>' : '') + '</div></nav><main class="main" id="main">' + trouble + (ready ? view() : '<div class="empty">Caricamento dei dati…</div>') + '</main></div>';
 }
 function view() {
   switch (S.route) {
@@ -1297,6 +1298,7 @@ A.import = () => {
   inp.click();
 };
 A.logout = () => { if (window.__logout) window.__logout(); };
+A.reload = () => location.reload();
 A.delDemo = async () => {
   if (!(await confirmBox('Eliminare tutti i dati di esempio (clienti, commesse, personale, mezzi…)? Le impostazioni e i tuoi dati non vengono toccati.', 'Elimina'))) return;
   for (const a of D('accessi').filter((y) => y.demo)) for (let k = 0; k < 14; k++) { try { await db.doc('ore/' + a.id + '/mesi/' + addMese(meseOggi(), -k)).delete(); } catch (e) { /* ignora */ } }
@@ -1375,7 +1377,12 @@ async function loadOre(u, m) {
 async function loadAllOre(m, silent) {
   if (!db || !S.admin) return;
   if (!silent) { S.oreLoading = true; queueRender(); }
-  await Promise.all(D('accessi').filter((a) => a.dipendenteId).map((a) => loadOre(a.id, m)));
+  /* una richiesta al backend per ogni dipendente, tutte insieme, tutte le volte che questa
+     pagina si aggiorna (anche ogni 60 secondi mentre resta aperta): con molte persone collegate
+     è un picco di richieste simultanee che può sovraccaricare il backend. A piccoli gruppi
+     invece di tutte insieme. */
+  const ids = D('accessi').filter((a) => a.dipendenteId).map((a) => a.id), BATCH = 4;
+  for (let i = 0; i < ids.length; i += BATCH) { await Promise.all(ids.slice(i, i + BATCH).map((id) => loadOre(id, m))); }
   S.oreLoading = false; queueRender();
 }
 async function resolveProf() {
@@ -2054,6 +2061,12 @@ function applyLocalWrite(col, id, doc) {
   if (doc == null) delete pollCache[col][id]; else pollCache[col][id] = doc;
   dispatchCollection(col);
 }
+/* dopo il primo caricamento riuscito, un fallimento di listAll veniva ignorato in silenzio:
+   i dati restavano quelli vecchi, senza alcun segnale che l'app avesse smesso di aggiornarsi —
+   così un problema del backend sembrava un errore misterioso e intermittente invece di un
+   disservizio in corso. Dopo qualche fallimento consecutivo (non uno isolato, per non allarmare
+   per un singolo intoppo di rete) viene mostrato un avviso, tolto al primo aggiornamento che torna a funzionare. */
+let pollFailStreak = 0;
 async function pollOnce() {
   const seqBefore = writeSeq;
   try {
@@ -2061,12 +2074,15 @@ async function pollOnce() {
     if (writeSeq !== seqBefore) return;
     pollCache = r.cols || {};
     Object.keys(collListeners).forEach(dispatchCollection);
+    if (pollFailStreak > 0 || S.syncTrouble) { pollFailStreak = 0; S.syncTrouble = false; queueRender(); }
   } catch (e) {
     /* un rifiuto vero (non un problema di rete/risposta momentaneo) durante il polling normale
        vuol dire quasi sempre token scaduto: senza reagire qui, l'app smette silenziosamente di
        aggiornarsi finché non si ricarica la pagina, ed è lì che si scopre di essere stati
        disconnessi — meglio tentare subito un rinnovo silenzioso, prima che l'utente se ne accorga */
     if (!e.transient) maybeRefreshToken(true);
+    pollFailStreak++;
+    if (pollFailStreak >= 3 && !S.syncTrouble) { S.syncTrouble = true; queueRender(); }
     Object.keys(collListeners).forEach((col) => {
       const reg = collListeners[col];
       if (reg.last == null) { reg.last = '{}'; reg.errcbs.forEach((ecb) => ecb(e)); }
@@ -2374,7 +2390,7 @@ function clearSavedToken() { try { localStorage.removeItem(TOKEN_KEY); } catch (
 window.__logout = () => {
   ID_TOKEN = null; WHOAMI_CACHE = null; stopPoll(); clearSavedToken(); clearSavedDriveToken();
   try { if (window.google && window.google.accounts && window.google.accounts.id) window.google.accounts.id.disableAutoSelect(); } catch (e) { /* ignora */ }
-  S.route = 'dashboard'; S.id = null; S.tab = null; S.data = {}; S.loaded = {}; S.admin = false; S.me = ''; S.uid = null; S.unauthorized = false; S.pendingEmail = ''; S.offline = false; S.late = false;
+  S.route = 'dashboard'; S.id = null; S.tab = null; S.data = {}; S.loaded = {}; S.admin = false; S.me = ''; S.uid = null; S.unauthorized = false; S.pendingEmail = ''; S.offline = false; S.late = false; S.syncTrouble = false; pollFailStreak = 0;
   showLogin();
 };
 A.signout = () => window.__logout();
@@ -2527,9 +2543,16 @@ async function seedCategorieDefault() {
   finally { categorieSeeding = false; }
 }
 function subscribeUser() {
-  if (S.uid) {
-    db.doc('accessi/' + S.uid).onSnapshot((snap) => { S.data.accessi = snap.exists ? { [S.uid]: Object.assign({}, snap.data(), { id: S.uid }) } : {}; S.loaded.accessi = true; queueRender(); }, () => { S.data.accessi = {}; S.loaded.accessi = true; queueRender(); });
-  } else { S.data.accessi = {}; S.loaded.accessi = true; }
+  /* prima qui c'era un secondo ciclo di polling indipendente (db.doc(...).onSnapshot, con un
+     suo giro ogni 30 secondi tutto suo) solo per il proprio documento "accessi" — ma quel
+     documento arriva già, per i non amministratori, dentro la stessa risposta di listAll usata
+     da "commesseElenco" (vedi apiListAll in Code.gs). Era quindi traffico doppio verso il
+     backend per ogni dipendente collegato, per gli stessi dati. Usando lo stesso meccanismo di
+     subscribe() degli altri dati si condivide lo stesso giro di polling, e in più si aggancia
+     alla pulizia già esistente in stopPoll()/logout (il vecchio ciclo indipendente non veniva
+     mai fermato: ad ogni logout+login nella stessa scheda del browser se ne accumulava uno
+     nuovo, che restava attivo per sempre). */
+  if (S.uid) subscribe('accessi'); else { S.data.accessi = {}; S.loaded.accessi = true; }
   subscribe('commesseElenco');
 }
 routeHooks.ore = () => { if (!S.mese) S.mese = meseOggi(); loadAllOre(S.mese); };
@@ -2553,7 +2576,9 @@ async function boot() {
   if (pref && pref.ok) { pollCache = pref.cols || {}; skipFirstPoll = true; }
   if (S.admin) COLS.forEach(subscribe); else { S.route = 'mieore'; subscribeUser(); }
   if (S.uid) watchMio(S.mese);
-  setInterval(() => { if (S.admin && !FORM && !document.hidden) { if (S.route === 'ore') loadAllOre(S.mese || meseOggi(), true); else if (S.route === 'mieore') ensureView(); } }, 60000);
+  /* senza questa guardia (come già per __tokenRefreshTimer sotto), ogni volta che boot() viene
+     rieseguito nella stessa scheda se ne aggiungerebbe un altro sopra i precedenti, sempre attivo */
+  if (!window.__refreshTimer) window.__refreshTimer = setInterval(() => { if (S.admin && !FORM && !document.hidden) { if (S.route === 'ore') loadAllOre(S.mese || meseOggi(), true); else if (S.route === 'mieore') ensureView(); } }, 60000);
   /* il token Google dura circa un'ora: senza rinnovarlo, prima o poi ogni chiamata al backend
      verrebbe rifiutata e l'utente si ritroverebbe disconnesso a metà lavoro. Lo si rinnova da
      solo, in background, ben prima che scada — così una sessione aperta resta valida finché
