@@ -244,19 +244,27 @@ function readDoc(col, id) {
   if (row < 0) return null;
   try { return JSON.parse(sh.getRange(row, 2).getValue()); } catch (e) { return null; }
 }
-function writeDoc(col, id, obj) {
+/* Ogni scrittura (su qualunque collezione, di chiunque) passa da qui: un unico "semaforo"
+   condiviso, perché Apps Script non offre un lucchetto per singola collezione, solo uno per
+   script. Due scritture sulla STESSA riga devono per forza aspettare il proprio turno (altrimenti
+   una delle due si perderebbe), quindi il lucchetto resta necessario; ma prima, se era occupato,
+   si aspettava fino a 30 secondi e poi uscivano il messaggio d'errore grezzo di Apps Script
+   (in inglese, poco chiaro). Ora l'attesa massima è più breve e l'errore, se capita, è chiaro. */
+function withLock(fn) {
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  try { lock.waitLock(10000); }
+  catch (e) { throw new Error('Il server è momentaneamente occupato: riprova tra qualche secondo.'); }
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+function writeDoc(col, id, obj) {
+  return withLock(function () {
     var sh = sheetFor(col), row = findRow(sh, id);
     var json = JSON.stringify(obj), now = new Date().toISOString();
     if (row < 0) sh.appendRow([id, json, now]); else sh.getRange(row, 1, 1, 3).setValues([[id, json, now]]);
-  } finally { lock.releaseLock(); }
+  });
 }
 function updateDoc(col, id, part) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  return withLock(function () {
     var cur = {};
     var sh = sheetFor(col), row = findRow(sh, id);
     if (row > 0) { try { cur = JSON.parse(sh.getRange(row, 2).getValue()) || {}; } catch (e) { cur = {}; } }
@@ -264,13 +272,13 @@ function updateDoc(col, id, part) {
     var json = JSON.stringify(merged), now = new Date().toISOString();
     if (row < 0) sh.appendRow([id, json, now]); else sh.getRange(row, 1, 1, 3).setValues([[id, json, now]]);
     return merged;
-  } finally { lock.releaseLock(); }
+  });
 }
 function deleteDoc(col, id) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try { var sh = sheetFor(col), row = findRow(sh, id); if (row > 0) sh.deleteRow(row); }
-  finally { lock.releaseLock(); }
+  return withLock(function () {
+    var sh = sheetFor(col), row = findRow(sh, id);
+    if (row > 0) sh.deleteRow(row);
+  });
 }
 function todayStr() {
   var d = new Date();
