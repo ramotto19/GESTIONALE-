@@ -1970,6 +1970,12 @@ A.edent = (d) => { S.edEnt = d.e; queueRender(); };
 document.addEventListener('click', (e) => {
   const t = e.target.closest ? e.target.closest('[data-a]') : null;
   if (!t) return;
+  /* un link (es. il file su Drive) dentro una riga cliccabile deve aprirsi normalmente,
+     non far scattare anche l'azione della riga (es. apertura della scheda): senza questo
+     controllo il preventDefault qui sotto bloccava la navigazione del link. Cliccando
+     altrove nella riga, dove non c'è un link, l'azione della riga funziona come prima. */
+  const link = e.target.closest ? e.target.closest('a[href]') : null;
+  if (link && link !== t && t.contains(link)) return;
   const fn = A[t.dataset.a];
   if (fn) { e.preventDefault(); Promise.resolve().then(() => fn(t.dataset, t, e)).catch((err) => console.warn(err)); }
 });
@@ -2262,7 +2268,7 @@ function driveBrowseClick(btn) {
       /* setParent('root') apre il selettore già dentro "Il mio Drive" (la struttura di cartelle
          vera e propria), invece della vista predefinita "Recenti" che mostra i file alla rinfusa
          senza tenere conto di come sono organizzati in cartelle. */
-      const view = new google.picker.DocsView(google.picker.ViewId.DOCS).setIncludeFolders(true).setSelectFolderEnabled(false).setParent('root');
+      const view = new google.picker.DocsView(google.picker.ViewId.DOCS).setIncludeFolders(true).setSelectFolderEnabled(false).setParent('root').setMode(google.picker.DocsViewMode.LIST);
       const picker = new google.picker.PickerBuilder()
         .addView(view)
         .setOAuthToken(token)
