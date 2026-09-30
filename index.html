@@ -2507,6 +2507,7 @@ function subscribe(col) {
     if (['commesse', 'commesseElenco', 'clienti', 'assegnazioni', 'assegnazioniG', 'squadre', 'accessi'].includes(col)) maybeSync();
     if (col === 'accessi') { resolveProf(); if (S.route === 'ore' && !S.oreLoading) loadAllOre(S.mese || meseOggi(), true); }
     if (col === 'categorie' || col === 'impostazioni') seedCategorieDefault();
+    if (col === 'tipiLavoro' || col === 'impostazioni') seedTipiLavoroDefault();
   }, (err) => { console.warn('db', col, err); S.data[col] = S.data[col] || {}; S.loaded[col] = true; queueRender(); });
 }
 /* la prima volta che l'amministratore arriva su Documentale senza aver ancora creato nessuna
@@ -2549,6 +2550,180 @@ async function seedCategorieDefault() {
     toast('Documentale: aggiunte le categorie di base ' + mancano.map((r) => r.nome).join(', ') + '. Puoi già caricare i documenti (le puoi rinominare o cambiare da Personalizza → Categorie documenti).');
   } catch (e) { /* se qualcosa fallisce a metà, riprova al prossimo caricamento della pagina */ }
   finally { categorieSeeding = false; }
+}
+
+/* ---------- tipologie di lavoro di base (checklist di cantiere) ---------- */
+/* Una voce per fase perché il peso (quanto conta sull'avanzamento) è una proprietà della fase,
+   non della singola voce: così ogni attività elencata ha il proprio peso, modificabile poi per
+   ogni singola commessa da "Avanzamento lavori" (la fase resta condivisa, il peso no). */
+const DEFAULT_TIPI_LAVORO = [
+  { id: 'elettrico_nuova', nome: 'Impianto elettrico - Nuova installazione', fasiTemplate: [
+    { nome: 'Sopralluogo e progetto', peso: 1, voci: ['Sopralluogo e rilievo misure'] },
+    { nome: 'Pratiche e autorizzazioni', peso: 1, voci: ['Pratiche con distributore ed ente comunale'] },
+    { nome: 'Tracce e predisposizioni', peso: 2, voci: ['Tracce a muro e a pavimento'] },
+    { nome: 'Posa tubazioni e cassette', peso: 2, voci: ['Posa tubi corrugati e cassette di derivazione'] },
+    { nome: 'Stesura linee', peso: 3, voci: ['Stesura cavi dorsali e terminali'] },
+    { nome: 'Quadri elettrici', peso: 3, voci: ['Montaggio e cablaggio quadro generale e quadri di zona'] },
+    { nome: 'Montaggio apparecchi', peso: 2, voci: ['Montaggio prese, interruttori e corpi illuminanti'] },
+    { nome: 'Impianto di terra', peso: 1, voci: ['Posa dispersore e collegamento equipotenziale'] },
+    { nome: 'Collaudo e verifiche', peso: 2, voci: ['Prove di isolamento, continuità e differenziali'] },
+    { nome: 'Dichiarazione di conformità', peso: 1, voci: ['Redazione e consegna DiCo'] }
+  ] },
+  { id: 'elettrico_rifacimento', nome: 'Impianto elettrico - Rifacimento', fasiTemplate: [
+    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Rilievo e verifica dello stato esistente'] },
+    { nome: 'Messa fuori servizio', peso: 1, voci: ['Disattivazione e scollegamento impianto esistente'] },
+    { nome: 'Rimozione apparecchi vecchi', peso: 2, voci: ['Rimozione prese, interruttori e corpi illuminanti esistenti'] },
+    { nome: 'Rimozione cavi e tubazioni dismesse', peso: 2, voci: ['Rimozione cablaggi e tubazioni non più utilizzabili'] },
+    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento materiali e RAEE secondo normativa'] },
+    { nome: 'Nuove tracce e predisposizioni', peso: 2, voci: ['Tracce a muro per i nuovi percorsi'] },
+    { nome: 'Cablaggi', peso: 3, voci: ['Stesura nuove linee dorsali e terminali'] },
+    { nome: 'Quadri elettrici', peso: 2, voci: ['Sostituzione o aggiornamento quadro elettrico'] },
+    { nome: 'Montaggio apparecchi nuovi', peso: 2, voci: ['Montaggio prese, interruttori e corpi illuminanti nuovi'] },
+    { nome: 'Verifica impianto di terra', peso: 1, voci: ['Verifica e adeguamento impianto di terra'] },
+    { nome: 'Collaudo e dichiarazione di conformità', peso: 2, voci: ['Prove elettriche e redazione DiCo'] }
+  ] },
+  { id: 'termico_nuova', nome: 'Impianto termico - Nuova installazione', fasiTemplate: [
+    { nome: 'Sopralluogo e dimensionamento', peso: 1, voci: ['Calcolo del fabbisogno termico e scelta del generatore'] },
+    { nome: 'Predisposizione locale tecnico', peso: 1, voci: ['Predisposizione locale caldaia e scarico fumi'] },
+    { nome: 'Posa tubazioni', peso: 3, voci: ['Stesura tubazioni di andata e ritorno'] },
+    { nome: 'Installazione generatore', peso: 2, voci: ['Montaggio e allacciamento caldaia o pompa di calore'] },
+    { nome: 'Installazione terminali', peso: 2, voci: ['Montaggio radiatori, pannelli radianti o fan coil'] },
+    { nome: 'Collettori e valvole', peso: 2, voci: ['Montaggio collettori e valvole termostatiche/di zona'] },
+    { nome: 'Allacciamento alimentazione', peso: 1, voci: ['Allacciamento gas o elettrico del generatore'] },
+    { nome: 'Riempimento e sfiato', peso: 1, voci: ['Riempimento, sfiato e prova a freddo'] },
+    { nome: 'Collaudo e messa in servizio', peso: 2, voci: ['Prova di tenuta, taratura e prima accensione'] },
+    { nome: 'Dichiarazione di conformità e libretto', peso: 1, voci: ['Redazione DiCo e libretto d’impianto'] }
+  ] },
+  { id: 'termico_rifacimento', nome: 'Impianto termico - Rifacimento', fasiTemplate: [
+    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato tubazioni e generatore esistenti'] },
+    { nome: 'Svuotamento impianto', peso: 1, voci: ['Svuotamento circuito e scarico acqua'] },
+    { nome: 'Rimozione generatore vecchio', peso: 2, voci: ['Rimozione caldaia o generatore esistente'] },
+    { nome: 'Rimozione tubazioni e terminali vecchi', peso: 2, voci: ['Rimozione tubazioni e radiatori dismessi'] },
+    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento generatore e materiali secondo normativa'] },
+    { nome: 'Nuove tubazioni', peso: 3, voci: ['Stesura nuove tubazioni'] },
+    { nome: 'Nuovo generatore', peso: 2, voci: ['Installazione e allacciamento nuovo generatore'] },
+    { nome: 'Nuovi terminali', peso: 2, voci: ['Montaggio nuovi radiatori, pannelli o fan coil'] },
+    { nome: 'Riempimento e collaudo', peso: 2, voci: ['Riempimento, sfiato e prova di tenuta'] },
+    { nome: 'Messa in servizio e dichiarazione di conformità', peso: 1, voci: ['Prima accensione, taratura e DiCo'] }
+  ] },
+  { id: 'idraulico_nuova', nome: 'Impianto idraulico - Nuova installazione', fasiTemplate: [
+    { nome: 'Sopralluogo e progetto', peso: 1, voci: ['Rilievo e progetto distribuzione acqua e scarichi'] },
+    { nome: 'Tracce e predisposizioni', peso: 2, voci: ['Tracce a muro e a pavimento per le tubazioni'] },
+    { nome: 'Adduzione acqua', peso: 3, voci: ['Stesura tubazioni acqua fredda e calda'] },
+    { nome: 'Scarichi', peso: 3, voci: ['Stesura tubazioni di scarico e ventilazione'] },
+    { nome: 'Allacciamento a rete idrica e fognaria', peso: 1, voci: ['Allacciamento a rete idrica e fognatura comunale'] },
+    { nome: 'Installazione sanitari', peso: 2, voci: ['Montaggio sanitari e rubinetteria'] },
+    { nome: 'Installazione scaldacqua/autoclave', peso: 1, voci: ['Installazione scaldabagno o autoclave, se previsti'] },
+    { nome: 'Prova di tenuta', peso: 1, voci: ['Prova di pressione e tenuta impianto'] },
+    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Verifica funzionamento e consegna'] }
+  ] },
+  { id: 'idraulico_rifacimento', nome: 'Impianto idraulico - Rifacimento', fasiTemplate: [
+    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato tubazioni e sanitari esistenti'] },
+    { nome: 'Chiusura acqua e svuotamento', peso: 1, voci: ['Intercettazione e svuotamento impianto'] },
+    { nome: 'Rimozione sanitari vecchi', peso: 2, voci: ['Rimozione sanitari e rubinetteria esistenti'] },
+    { nome: 'Rimozione tubazioni vecchie', peso: 2, voci: ['Rimozione tubazioni dismesse'] },
+    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento sanitari e materiali'] },
+    { nome: 'Nuove tubazioni adduzione', peso: 3, voci: ['Stesura nuove tubazioni acqua fredda e calda'] },
+    { nome: 'Nuove tubazioni scarico', peso: 2, voci: ['Stesura nuove tubazioni di scarico'] },
+    { nome: 'Montaggio sanitari nuovi', peso: 2, voci: ['Montaggio nuovi sanitari e rubinetteria'] },
+    { nome: 'Prova di tenuta', peso: 1, voci: ['Prova di pressione e tenuta'] },
+    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Verifica funzionamento e consegna'] }
+  ] },
+  { id: 'tecnologico_nuova', nome: 'Impianto tecnologico - Nuova installazione', fasiTemplate: [
+    { nome: 'Sopralluogo e progetto', peso: 1, voci: ['Rilievo e progetto impianti speciali'] },
+    { nome: 'Predisposizioni', peso: 2, voci: ['Tracce, tubazioni e cassette per il cablaggio strutturato'] },
+    { nome: 'Cablaggio dati e fonia', peso: 2, voci: ['Stesura cavi rete dati e fonia'] },
+    { nome: 'Impianto citofonico/videocitofonico', peso: 1, voci: ['Posa e cablaggio citofono o videocitofono'] },
+    { nome: 'Impianto TVCC', peso: 2, voci: ['Installazione telecamere, cablaggio e NVR'] },
+    { nome: 'Impianto antintrusione', peso: 1, voci: ['Installazione sensori, centrale e sirene'] },
+    { nome: 'Domotica e automazione', peso: 2, voci: ['Installazione moduli domotici e configurazione'] },
+    { nome: 'Rack e apparati attivi', peso: 1, voci: ['Montaggio rack, switch e apparati di rete'] },
+    { nome: 'Configurazione e collaudo', peso: 2, voci: ['Configurazione software e test funzionale'] },
+    { nome: 'Documentazione e consegna', peso: 1, voci: ['Schemi as-built e formazione al cliente'] }
+  ] },
+  { id: 'tecnologico_rifacimento', nome: 'Impianto tecnologico - Rifacimento', fasiTemplate: [
+    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato impianti speciali esistenti'] },
+    { nome: 'Rimozione apparecchi vecchi', peso: 2, voci: ['Rimozione telecamere, centrali o apparati obsoleti'] },
+    { nome: 'Rimozione cablaggi dismessi', peso: 1, voci: ['Rimozione cavi non più utilizzabili'] },
+    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento apparecchiature elettroniche (RAEE)'] },
+    { nome: 'Nuovo cablaggio', peso: 2, voci: ['Stesura nuovi cavi dati, fonia e TVCC'] },
+    { nome: 'Nuovi apparecchi TVCC/antintrusione', peso: 2, voci: ['Installazione nuove telecamere, sensori e centrale'] },
+    { nome: 'Aggiornamento domotica', peso: 2, voci: ['Installazione o aggiornamento moduli domotici'] },
+    { nome: 'Rack e apparati attivi', peso: 1, voci: ['Sostituzione o aggiornamento switch e apparati'] },
+    { nome: 'Configurazione e collaudo', peso: 2, voci: ['Configurazione e test funzionale'] },
+    { nome: 'Documentazione e consegna', peso: 1, voci: ['Aggiornamento schemi e formazione al cliente'] }
+  ] },
+  { id: 'fotovoltaico_nuova', nome: 'Impianto fotovoltaico - Nuova installazione', fasiTemplate: [
+    { nome: 'Sopralluogo e progetto', peso: 1, voci: ['Rilievo tetto/area e progetto impianto'] },
+    { nome: 'Pratiche e autorizzazioni', peso: 1, voci: ['Pratiche GSE, distributore ed ente comunale'] },
+    { nome: 'Strutture di sostegno', peso: 2, voci: ['Montaggio strutture e staffe di ancoraggio'] },
+    { nome: 'Posa pannelli', peso: 3, voci: ['Installazione e fissaggio moduli fotovoltaici'] },
+    { nome: 'Cablaggio DC', peso: 2, voci: ['Cablaggio stringhe e collegamento pannelli'] },
+    { nome: 'Installazione inverter', peso: 2, voci: ['Montaggio e collegamento inverter'] },
+    { nome: 'Quadri e protezioni', peso: 1, voci: ['Installazione quadro DC/AC e protezioni'] },
+    { nome: 'Cablaggio AC e allaccio', peso: 1, voci: ['Collegamento a quadro generale e rete'] },
+    { nome: 'Sistema di accumulo', peso: 1, voci: ['Installazione batteria di accumulo, se prevista'] },
+    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Test funzionale e prima connessione'] },
+    { nome: 'Pratiche di connessione e GSE', peso: 1, voci: ['Comunicazione fine lavori e attivazione GSE'] }
+  ] },
+  { id: 'fotovoltaico_rifacimento', nome: 'Impianto fotovoltaico - Rifacimento', fasiTemplate: [
+    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato pannelli, inverter e cablaggi'] },
+    { nome: 'Disattivazione impianto', peso: 1, voci: ['Messa fuori servizio impianto esistente'] },
+    { nome: 'Rimozione pannelli/inverter vecchi', peso: 2, voci: ['Rimozione moduli e inverter da sostituire'] },
+    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento pannelli e componenti secondo normativa'] },
+    { nome: 'Verifica strutture', peso: 1, voci: ['Verifica e adeguamento strutture di sostegno'] },
+    { nome: 'Posa nuovi pannelli', peso: 3, voci: ['Installazione nuovi moduli fotovoltaici'] },
+    { nome: 'Nuovo cablaggio DC', peso: 2, voci: ['Cablaggio nuove stringhe'] },
+    { nome: 'Nuovo inverter', peso: 2, voci: ['Installazione e collegamento nuovo inverter'] },
+    { nome: 'Quadri e protezioni', peso: 1, voci: ['Aggiornamento quadro e protezioni'] },
+    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Test funzionale e riconnessione'] },
+    { nome: 'Aggiornamento pratiche GSE', peso: 1, voci: ['Comunicazione variazione impianto al GSE'] }
+  ] },
+  { id: 'clima_nuova', nome: 'Impianto di climatizzazione - Nuova installazione', fasiTemplate: [
+    { nome: 'Sopralluogo e dimensionamento', peso: 1, voci: ['Calcolo carichi termici e scelta delle unità'] },
+    { nome: 'Predisposizioni', peso: 1, voci: ['Predisposizione fori di passaggio e scarichi condensa'] },
+    { nome: 'Installazione unità esterna', peso: 2, voci: ['Montaggio e fissaggio unità esterna/e'] },
+    { nome: 'Installazione unità interne', peso: 2, voci: ['Montaggio split, canalizzati o cassette'] },
+    { nome: 'Linee frigorifere', peso: 3, voci: ['Posa e coibentazione linee frigorifere'] },
+    { nome: 'Scarico condensa', peso: 1, voci: ['Posa tubazioni scarico condensa'] },
+    { nome: 'Cablaggio elettrico', peso: 1, voci: ['Collegamento elettrico unità interne ed esterne'] },
+    { nome: 'Vuoto e carica gas', peso: 2, voci: ['Prova del vuoto e carica del refrigerante'] },
+    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Test funzionale e regolazione'] },
+    { nome: 'Dichiarazione di conformità', peso: 1, voci: ['Redazione DiCo e libretto d’impianto'] }
+  ] },
+  { id: 'clima_rifacimento', nome: 'Impianto di climatizzazione - Rifacimento', fasiTemplate: [
+    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato unità e linee esistenti'] },
+    { nome: 'Recupero gas refrigerante', peso: 1, voci: ['Recupero gas dall’impianto esistente'] },
+    { nome: 'Rimozione unità vecchie', peso: 2, voci: ['Rimozione unità interne ed esterne dismesse'] },
+    { nome: 'Rimozione linee vecchie', peso: 1, voci: ['Rimozione linee frigorifere non riutilizzabili'] },
+    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento unità e gas secondo normativa'] },
+    { nome: 'Nuove linee frigorifere', peso: 3, voci: ['Posa e coibentazione nuove linee'] },
+    { nome: 'Nuove unità interne', peso: 2, voci: ['Montaggio nuove unità interne'] },
+    { nome: 'Nuova unità esterna', peso: 2, voci: ['Montaggio nuova unità esterna'] },
+    { nome: 'Vuoto e carica gas', peso: 2, voci: ['Prova del vuoto e carica del refrigerante'] },
+    { nome: 'Collaudo e dichiarazione di conformità', peso: 1, voci: ['Test funzionale e redazione DiCo'] }
+  ] }
+];
+let tipiLavoroSeeding = false;
+async function seedTipiLavoroDefault() {
+  if (!S.admin || !db || tipiLavoroSeeding || !S.loaded.tipiLavoro || !S.loaded.impostazioni) return;
+  const fatte = CFG('tipiLavoroSeed').fatte || [];
+  const mancano = DEFAULT_TIPI_LAVORO.filter((r) => !fatte.includes('tipo-' + r.id));
+  if (!mancano.length) return;
+  tipiLavoroSeeding = true;
+  try {
+    const nuoviCodici = [];
+    for (const r of mancano) {
+      const rid = 'tipo-' + r.id;
+      nuoviCodici.push(rid);
+      if (!G('tipiLavoro', rid)) {
+        await db.doc('tipiLavoro/' + rid).set({ nome: r.nome, codice: '', abilitazioniRichieste: [], docImpresaRichiesti: [], fasiTemplate: r.fasiTemplate });
+      }
+    }
+    await db.doc('impostazioni/tipiLavoroSeed').set({ fatte: fatte.concat(nuoviCodici) });
+    toast('Aggiunte le tipologie di lavoro di base, con checklist di cantiere già pronta (modificabile da Azienda → Tipologie di lavoro).');
+  } catch (e) { /* se qualcosa fallisce a metà, riprova al prossimo caricamento della pagina */ }
+  finally { tipiLavoroSeeding = false; }
 }
 function subscribeUser() {
   /* prima qui c'era un secondo ciclo di polling indipendente (db.doc(...).onSnapshot, con un
