@@ -2249,7 +2249,10 @@ function driveBrowseClick(btn) {
     if (!CONFIG.API_KEY) { toast('Selettore Drive non configurato: manca API_KEY in index.html.', 'err'); return; }
     try { await loadPickerApi(); } catch (e) { toast(e.message, 'err'); return; }
     const picked = await new Promise((resolve) => {
-      const view = new google.picker.DocsView(google.picker.ViewId.DOCS).setIncludeFolders(true).setSelectFolderEnabled(false);
+      /* setParent('root') apre il selettore già dentro "Il mio Drive" (la struttura di cartelle
+         vera e propria), invece della vista predefinita "Recenti" che mostra i file alla rinfusa
+         senza tenere conto di come sono organizzati in cartelle. */
+      const view = new google.picker.DocsView(google.picker.ViewId.DOCS).setIncludeFolders(true).setSelectFolderEnabled(false).setParent('root');
       const picker = new google.picker.PickerBuilder()
         .addView(view)
         .setOAuthToken(token)
