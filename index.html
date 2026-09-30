@@ -292,15 +292,30 @@ function editSub(o) {
   const arr = clone(doc[o.key] || []);
   const isNew = o.i == null || o.i === '';
   const cur = isNew ? (o.defaults || {}) : arr[+o.i];
+  /* l'array da modificare si rilegge da capo al salvataggio, non da questa copia presa
+     quando si è aperto il modulo: usata da moltissime funzioni (pagamenti, costi,
+     abilitazioni, documenti personale, controlli mezzi…), senza questo bastava lasciare il
+     modulo aperto un momento — o due salvataggi ravvicinati sullo stesso elenco — perché una
+     modifica nel frattempo venisse sovrascritta e persa (stesso bug corretto per le checklist
+     dell'iter e di cantiere). */
   openForm({
     title: o.title, fields: o.fields, values: cur, info: o.info, wide: o.wide,
     onSave: async (v) => {
+      const doc2 = clone(G(o.col, o.id)), arr2 = doc2[o.key] || [];
       let item = Object.assign({}, cur, v);
       if (o.map) item = o.map(item);
-      if (isNew) { item.id = uid(); arr.push(item); } else arr[+o.i] = item;
-      await patch(o.col, o.id, { [o.key]: arr });
+      if (isNew) { item.id = uid(); arr2.push(item); } else arr2[+o.i] = item;
+      doc2[o.key] = arr2;
+      applyLocalWrite(o.col, o.id, doc2);
+      await patch(o.col, o.id, { [o.key]: arr2 });
     },
-    onDelete: isNew ? null : async () => { arr.splice(+o.i, 1); await patch(o.col, o.id, { [o.key]: arr }); }
+    onDelete: isNew ? null : async () => {
+      const doc2 = clone(G(o.col, o.id)), arr2 = doc2[o.key] || [];
+      arr2.splice(+o.i, 1);
+      doc2[o.key] = arr2;
+      applyLocalWrite(o.col, o.id, doc2);
+      await patch(o.col, o.id, { [o.key]: arr2 });
+    }
   });
 }
 
@@ -831,11 +846,13 @@ A.iterPassAdd = (d) => {
     onSave: async (v) => {
       const s = disp.find((x) => x.codice === v.codice); if (!s) return;
       const nuovo = { codice: s.codice, nome: s.nome, stato: 'DA_FARE', bloccante: !!s.bloccante, responsabile: '', dataPrevista: '', note: '', voci: s.voci.map((t) => ({ t: t, done: false })) };
-      const n = clone(c.iter || []), posModello = disp.findIndex((x) => x.codice === s.codice);
+      const c2 = clone(G('commesse', d.id)), n = c2.iter || [], posModello = disp.findIndex((x) => x.codice === s.codice);
       let ins = n.length;
       for (let i = 0; i < n.length; i++) { const pi = disp.findIndex((x) => x.codice === n[i].codice); if (pi > posModello) { ins = i; break; } }
       n.splice(ins, 0, nuovo);
-      await patch('commesse', c.id, { iter: n });
+      c2.iter = n;
+      applyLocalWrite('commesse', c2.id, c2);
+      await patch('commesse', c2.id, { iter: n });
     }
   });
 };
@@ -910,9 +927,9 @@ A.costNew = (d) => editSub({ col: 'commesse', id: d.id, key: 'costi', title: 'Co
 A.costEdit = (d) => editSub({ col: 'commesse', id: d.id, key: 'costi', i: d.i, title: 'Costo', fields: [{ k: 'descrizione', l: 'Descrizione', req: true }, { k: 'fornitore', l: 'Fornitore', half: true }, { k: 'data', l: 'Data', t: 'date', half: true }, { k: 'importo', l: 'Importo (€)', t: 'number', req: true }] });
 A.incNew = (d) => {
   const c = G('commesse', d.id), p = c.pagamenti[+d.i], res = Math.max(0, (Number(p.importo) || 0) - incassatoP(p));
-  openForm({ title: 'Registra incasso', info: (p.descrizione || lab(TIPI_PAG, p.tipo)) + ' · residuo ' + eur(res), fields: [{ k: 'data', l: 'Data', t: 'date', req: true, half: true }, { k: 'importo', l: 'Importo (€)', t: 'number', req: true, half: true }, { k: 'modalita', l: 'Modalità', t: 'select', half: true, opts: MODALITA }, { k: 'riferimento', l: 'Riferimento (CRO, assegno…)', half: true }], values: { data: today(), importo: res, modalita: 'BONIFICO' }, onSave: async (v) => { const n = clone(c.pagamenti); n[+d.i].incassi = n[+d.i].incassi || []; n[+d.i].incassi.push(Object.assign({ id: uid() }, v)); await patch('commesse', c.id, { pagamenti: n }); } });
+  openForm({ title: 'Registra incasso', info: (p.descrizione || lab(TIPI_PAG, p.tipo)) + ' · residuo ' + eur(res), fields: [{ k: 'data', l: 'Data', t: 'date', req: true, half: true }, { k: 'importo', l: 'Importo (€)', t: 'number', req: true, half: true }, { k: 'modalita', l: 'Modalità', t: 'select', half: true, opts: MODALITA }, { k: 'riferimento', l: 'Riferimento (CRO, assegno…)', half: true }], values: { data: today(), importo: res, modalita: 'BONIFICO' }, onSave: async (v) => { const c2 = clone(G('commesse', d.id)); c2.pagamenti[+d.i].incassi = c2.pagamenti[+d.i].incassi || []; c2.pagamenti[+d.i].incassi.push(Object.assign({ id: uid() }, v)); applyLocalWrite('commesse', c2.id, c2); await patch('commesse', c2.id, { pagamenti: c2.pagamenti }); } });
 };
-A.incDel = async (d) => { if (!(await confirmBox('Eliminare questo incasso?', 'Elimina'))) return; const c = G('commesse', d.id), n = clone(c.pagamenti), p = n.find((x) => x.id === d.p); p.incassi = (p.incassi || []).filter((x) => x.id !== d.x); await patch('commesse', c.id, { pagamenti: n }); };
+A.incDel = async (d) => { if (!(await confirmBox('Eliminare questo incasso?', 'Elimina'))) return; const c = clone(G('commesse', d.id)), p = c.pagamenti.find((x) => x.id === d.p); p.incassi = (p.incassi || []).filter((x) => x.id !== d.x); applyLocalWrite('commesse', c.id, c); await patch('commesse', c.id, { pagamenti: c.pagamenti }); };
 
 /* --- documenti e squadre della commessa --- */
 function tabDocumenti(c) {
@@ -2046,17 +2063,41 @@ function loadGis() {
     document.head.appendChild(s);
   });
 }
-async function api(action, params) {
+/* senza un limite di tempo, una connessione che resta "appesa" (capita con Apps Script sotto
+   carico, la stessa causa dei 404 su .../macros/echo visti in console) lasciava la richiesta in
+   attesa per sempre: il pulsante restava bloccato su "Salvataggio…"/"Eliminazione…" e il
+   polling si fermava, finché non si ricaricava la pagina a mano. Ora dopo 25 secondi la
+   richiesta viene abbandonata e trattata come un problema temporaneo (si riprova, vedi sotto). */
+async function apiOnce(action, params) {
   if (!CONFIG.SCRIPT_URL) throw new Error('SCRIPT_URL non configurato: vedi il README.');
   const body = Object.assign({ action: action, idToken: ID_TOKEN }, params || {});
+  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 25000);
   let res;
-  try { res = await fetch(CONFIG.SCRIPT_URL, { method: 'POST', body: JSON.stringify(body) }); }
+  try { res = await fetch(CONFIG.SCRIPT_URL, { method: 'POST', body: JSON.stringify(body), signal: ctrl.signal }); }
   catch (e) { const err = new Error('Impossibile contattare il backend. Controlla la connessione.'); err.transient = true; throw err; }
+  finally { clearTimeout(timer); }
   /* una risposta non-JSON (pagina di errore/quota di Google) è un problema temporaneo del
      server, non una sessione non valida: va distinta da un vero rifiuto (j.ok === false) più sotto */
   let j; try { j = await res.json(); } catch (e) { const err = new Error('Risposta del backend non valida.'); err.transient = true; throw err; }
   if (!j.ok) throw new Error(j.error || 'Errore del server.');
   return j;
+}
+/* un problema temporaneo (rete, timeout, la risposta di Google non ancora pronta) non deve far
+   fallire subito un salvataggio o un'eliminazione: si riprova un paio di volte con una piccola
+   pausa, come si fa già per il login. È sicuro ripetere qualunque azione (listAll incluso):
+   set/update/delete cercano sempre prima la riga esistente, quindi un tentativo ripetuto non
+   crea mai un doppione anche quando il primo, in realtà, era già andato a buon fine. */
+async function api(action, params) {
+  let lastErr;
+  for (let i = 0; i < 3; i++) {
+    try { return await apiOnce(action, params); }
+    catch (e) {
+      lastErr = e;
+      if (!e.transient || i === 2) throw e;
+      await new Promise((res) => setTimeout(res, 1200 * (i + 1)));
+    }
+  }
+  throw lastErr;
 }
 async function whoami(force) {
   if (WHOAMI_CACHE && !force) return WHOAMI_CACHE;
@@ -2726,12 +2767,16 @@ const DEFAULT_TIPI_LAVORO = [
    nuovo/rifacimento spostata nella commessa, vedi tabCantiere) — questi sono gli id di quella
    versione precedente, da togliere se erano arrivati a crearsi prima del ripensamento. */
 const TIPI_LAVORO_SEED_OBSOLETI = ['tipo-elettrico_nuova', 'tipo-elettrico_rifacimento', 'tipo-termico_nuova', 'tipo-termico_rifacimento', 'tipo-idraulico_nuova', 'tipo-idraulico_rifacimento', 'tipo-tecnologico_nuova', 'tipo-tecnologico_rifacimento', 'tipo-fotovoltaico_nuova', 'tipo-fotovoltaico_rifacimento', 'tipo-clima_nuova', 'tipo-clima_rifacimento'];
-let tipiLavoroSeeding = false;
+let tipiLavoroSeeding = false, tipiLavoroObsoletiTentati = false;
 async function seedTipiLavoroDefault() {
   if (!S.admin || !db || tipiLavoroSeeding || !S.loaded.tipiLavoro || !S.loaded.impostazioni || !S.loaded.commesse) return;
   const fatte = CFG('tipiLavoroSeed').fatte || [];
   const mancano = DEFAULT_TIPI_LAVORO.filter((r) => !fatte.includes('tipo-' + r.id));
-  const obsoleti = TIPI_LAVORO_SEED_OBSOLETI.filter((rid) => G('tipiLavoro', rid) && !D('commesse').some((c) => (c.tipiLavoro || []).includes(rid)));
+  /* il ripulisti delle tipologie obsolete (vedi sopra) si tenta una volta sola per sessione,
+     non ad ogni salvataggio di una commessa qualsiasi: se il backend è sotto carico e
+     l'eliminazione impiega tempo, ritentarla ad ogni modifica altrove aggiungerebbe altro
+     traffico proprio mentre il backend è già in difficoltà. */
+  const obsoleti = tipiLavoroObsoletiTentati ? [] : TIPI_LAVORO_SEED_OBSOLETI.filter((rid) => G('tipiLavoro', rid) && !D('commesse').some((c) => (c.tipiLavoro || []).includes(rid)));
   if (!mancano.length && !obsoleti.length) return;
   tipiLavoroSeeding = true;
   try {
@@ -2743,7 +2788,7 @@ async function seedTipiLavoroDefault() {
         await db.doc('tipiLavoro/' + rid).set({ nome: r.nome, codice: '', abilitazioniRichieste: [], docImpresaRichiesti: [], fasiNuovo: r.fasiNuovo, fasiRifacimento: r.fasiRifacimento });
       }
     }
-    for (const rid of obsoleti) { try { await db.doc('tipiLavoro/' + rid).delete(); } catch (e) { /* ignora */ } }
+    if (obsoleti.length) { tipiLavoroObsoletiTentati = true; for (const rid of obsoleti) { try { await db.doc('tipiLavoro/' + rid).delete(); } catch (e) { /* ignora */ } } }
     if (nuoviCodici.length) await db.doc('impostazioni/tipiLavoroSeed').set({ fatte: fatte.concat(nuoviCodici) });
     if (mancano.length) toast('Aggiunte le tipologie di lavoro di base: nella scheda di ogni commessa, sezione Cantiere, si sceglie nuova installazione o rifacimento per caricare la checklist pronta.');
   } catch (e) { /* se qualcosa fallisce a metà, riprova al prossimo caricamento della pagina */ }
