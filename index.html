@@ -250,7 +250,7 @@ function fld(f, v) {
   if (t === 'multi') { const sel = Array.isArray(v) ? v : []; return '<div class="' + cl + '"><label>' + esc(f.l) + (f.req ? ' *' : '') + '</label><div class="multi" data-k="' + f.k + '">' + f.opts.map((o) => '<label class="mo"><input type="checkbox" value="' + esc(o[0]) + '"' + (sel.includes(o[0]) ? ' checked' : '') + '> ' + esc(o[1]) + '</label>').join('') + '</div>' + ht + '</div>'; }
   if (t === 'file') {
     const cur = v && v.url ? '<div class="hint">Allegato attuale: <a class="lnk" href="' + esc(v.url) + '" target="_blank" rel="noopener">' + esc(v.name || 'file') + '</a>. Scegli un nuovo file per sostituirlo.</div>' : v && v.id ? '<div class="hint">Allegato attuale: ' + esc(v.name || 'file') + ' (link non disponibile).</div>' : '';
-    return '<div class="' + cl + '">' + lb + '<div class="row"><input type="file" id="' + id + '" name="' + f.k + '" style="flex:1" onchange="document.getElementById(\'' + id + '_url\').value=\'\'"><button type="button" class="btn sm" onclick="driveBrowseClick(this)" data-target="' + id + '_url">Sfoglia Drive</button></div>' + cur + (!assets ? '<div class="hint">Il caricamento dei file non è disponibile in questa vista.</div>' : '') + '<label for="' + id + '_url" style="margin-top:8px">Oppure link a Google Drive</label><input type="text" inputmode="url" id="' + id + '_url" placeholder="https://drive.google.com/…" value="' + esc(v && v.url ? v.url : '') + '">' + ht + '</div>';
+    return '<div class="' + cl + '">' + lb + '<div class="row"><input type="file" id="' + id + '" name="' + f.k + '" style="flex:1" onchange="localFilePicked(this)"><button type="button" class="btn sm" onclick="driveBrowseClick(this)" data-target="' + id + '_url">Sfoglia Drive</button></div>' + cur + (!assets ? '<div class="hint">Il caricamento dei file non è disponibile in questa vista.</div>' : '') + '<label for="' + id + '_url" style="margin-top:8px">Oppure link a Google Drive</label><input type="text" inputmode="url" id="' + id + '_url" placeholder="https://drive.google.com/…" value="' + esc(v && v.url ? v.url : '') + '">' + ht + '</div>';
   }
   return '<div class="' + cl + '">' + lb + '<input type="' + (t === 'date' ? 'date' : t === 'time' ? 'time' : 'text') + '" inputmode="' + (t === 'number' ? 'decimal' : 'text') + '" id="' + id + '" name="' + f.k + '" value="' + esc(v) + '"' + (f.ph ? ' placeholder="' + esc(f.ph) + '"' : '') + '>' + ht + '</div>';
 }
@@ -2224,6 +2224,16 @@ function loadPickerApi() {
     document.head.appendChild(s);
   });
   return pickerLoadPromise;
+}
+/* Scelta di un file dal computer (input nativo, accanto a "Sfoglia Drive"): svuota l'eventuale
+   link Drive già scelto (altrimenti resterebbero impostati insieme, in modo ambiguo) e conferma
+   subito, come per "Sfoglia Drive", cosa succederà al salvataggio: qui viene davvero caricata
+   una copia del file, a differenza del link diretto che non carica nulla. */
+function localFilePicked(el) {
+  const ue = document.getElementById(el.id + '_url');
+  if (ue) ue.value = '';
+  const file = el.files && el.files[0];
+  if (file) toast('Selezionato «' + file.name + '»: al salvataggio verrà caricata una copia su Drive.');
 }
 /* Pulsante "Sfoglia Drive": NON passa dal dispatcher generico dell'app (quello con
    data-a, che esegue le azioni con un piccolo ritardo asincrono) perché il browser
