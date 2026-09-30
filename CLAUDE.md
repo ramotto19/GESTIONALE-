@@ -33,6 +33,7 @@ Memoria del progetto **Gestionale Impianti**: Claude legge questo file automatic
 
 - 2026-09-30: plugin e skill di Claude Code stanno nel repository separato `ramotto19/CLAUDE-PLUGIN`, non qui.
 - 2026-09-30: la memoria è gestita con questo file (gratuito, nessun servizio esterno).
+- 2026-09-30: la repository resta pubblica, perché l'app è servita da GitHub Pages (account gratuito) e il codice non contiene segreti.
 
 ## Da ricordare
 
