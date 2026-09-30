@@ -545,11 +545,6 @@ function iterDisponibili() {
   base.splice(ins < 0 ? base.length : ins, 0, ...SIC_TUTTE);
   return base;
 }
-function newFasi(tipi) {
-  const out = [];
-  (tipi || []).forEach((id) => { const t = G('tipiLavoro', id); if (!t) return; (t.fasiTemplate || []).forEach((f) => out.push({ nome: f.nome + (tipi.length > 1 ? ' (' + t.nome + ')' : ''), peso: f.peso || 1, voci: (f.voci || []).map((x) => ({ t: x, done: false })) })); });
-  return out;
-}
 
 /* ---------- calcoli ---------- */
 const stepOk = (s) => !!s && (s.stato === 'COMPLETATO' || s.stato === 'NON_APPLICABILE');
@@ -747,7 +742,7 @@ A.newC = () => {
   openForm({
     title: 'Nuova commessa', wide: true, info: 'L\u2019iter (preventivo, conferma d\u2019ordine, POS, DICO…) e la checklist di cantiere si creano da soli in base alle tipologie scelte.',
     fields: commessaFields(), values: { codice: nextCodice(), stato: 'OFFERTA', aliquotaIva: 22 },
-    onSave: async (v) => { const id = newId('commesse'); await put('commesse', id, Object.assign({}, v, { iter: newIter(), fasi: newFasi(v.tipiLavoro), sicurezza: [], pagamenti: [], costi: [], creataIl: today() })); go('commessa', id, 'panoramica'); }
+    onSave: async (v) => { const id = newId('commesse'); await put('commesse', id, Object.assign({}, v, { iter: newIter(), fasi: [], sicurezza: [], pagamenti: [], costi: [], creataIl: today() })); go('commessa', id, 'panoramica'); }
   });
 };
 A.editC = (d) => { const c = G('commesse', d.id); openForm({ title: 'Modifica commessa', wide: true, fields: commessaFields(), values: c, onSave: (v) => patch('commesse', c.id, v), onDelete: S.admin ? async () => { await remove('commesse', c.id); go('commesse'); } : null }); };
@@ -846,18 +841,43 @@ A.iterPassAdd = (d) => {
 };
 
 /* --- cantiere --- */
+/* genera le fasi di una commessa a partire da una tipologia di lavoro e da come si sta
+   intervenendo (nuova installazione o rifacimento, scelti dalla scheda Cantiere della
+   commessa — non qui): ogni fase resta collegata alla tipologia/variante di origine
+   (tipoId/variante) solo per sapere quali tipologie hanno già una checklist caricata, non per
+   altro — da qui in poi è una fase come le altre, modificabile liberamente. */
+function newFasiDaTipo(tipo, variante) {
+  const arr = (variante === 'rifacimento' ? tipo.fasiRifacimento : tipo.fasiNuovo) || tipo.fasiTemplate || [];
+  return arr.map((f) => ({ nome: f.nome, peso: f.peso || 1, voci: (f.voci || []).map((x) => ({ t: x, done: false })), tipoId: tipo.id, variante: variante }));
+}
 function tabCantiere(c) {
   const p = pctFasi(c), f = c.fasi || [];
-  return '<div class="card" style="margin-bottom:16px"><div class="row sp"><div><div class="kpi"><div class="l">Avanzamento dei lavori</div><div class="v">' + p + '%</div></div></div><button class="btn p" data-a="fasAdd" data-id="' + esc(c.id) + '">+ Fase</button></div>' + bar(p) + '<div class="small muted">Media ponderata sul peso di ciascuna fase.</div></div><div class="stack">' + (f.length ? f.map((x, i) => {
+  const tipiMancanti = (c.tipiLavoro || []).map((id) => G('tipiLavoro', id)).filter(Boolean).filter((t) => !f.some((x) => x.tipoId === t.id));
+  const picker = tipiMancanti.length ? '<div class="card" style="margin-bottom:16px"><h3 style="margin:0 0 8px">Carica la checklist di cantiere</h3><div class="stack">' + tipiMancanti.map((t) => {
+    const haNuovo = (t.fasiNuovo || []).length, haRif = (t.fasiRifacimento || []).length;
+    if (!haNuovo && !haRif) return '<div class="blk"><div style="flex:1"><b>' + esc(t.nome) + '</b></div><button class="btn sm" data-a="fasiCarica" data-id="' + esc(c.id) + '" data-tipo="' + esc(t.id) + '" data-var="generica">Carica checklist</button></div>';
+    return '<div class="blk"><div style="flex:1"><b>' + esc(t.nome) + '</b><div class="small muted">Nuova installazione o rifacimento?</div></div><span class="row">' + (haNuovo ? '<button class="btn sm" data-a="fasiCarica" data-id="' + esc(c.id) + '" data-tipo="' + esc(t.id) + '" data-var="nuovo">Nuova installazione</button>' : '') + (haRif ? '<button class="btn sm" data-a="fasiCarica" data-id="' + esc(c.id) + '" data-tipo="' + esc(t.id) + '" data-var="rifacimento">Rifacimento</button>' : '') + '</span></div>';
+  }).join('') + '</div></div>' : '';
+  return picker + '<div class="card" style="margin-bottom:16px"><div class="row sp"><div><div class="kpi"><div class="l">Avanzamento dei lavori</div><div class="v">' + p + '%</div></div></div><button class="btn p" data-a="fasAdd" data-id="' + esc(c.id) + '">+ Fase</button></div>' + bar(p) + '<div class="small muted">Media ponderata sul peso di ciascuna fase.</div></div><div class="stack">' + (f.length ? f.map((x, i) => {
     const done = (x.voci || []).filter((v) => v.done).length, pc = (x.voci || []).length ? Math.round(100 * done / x.voci.length) : 0;
     return '<section class="card"><div class="ch"><div><h3>' + esc(x.nome) + '</h3><div class="small muted">Peso ' + (x.peso || 1) + ' · ' + done + '/' + (x.voci || []).length + ' attività · ' + pc + '%</div></div><div class="row"><button class="btn sm" data-a="fasEdit" data-id="' + esc(c.id) + '" data-i="' + i + '">Modifica</button></div></div>' + bar(pc) + '<div>' + (x.voci || []).map((v, j) => '<div class="vc' + (v.done ? ' done' : '') + '"><label><input type="checkbox" data-c="fasVoce" data-id="' + esc(c.id) + '" data-i="' + i + '" data-j="' + j + '"' + (v.done ? ' checked' : '') + '><span>' + esc(v.t) + '</span></label><button class="btn sm" data-a="fasVoceDel" data-id="' + esc(c.id) + '" data-i="' + i + '" data-j="' + j + '" aria-label="Elimina attività">×</button></div>').join('') + '</div><div><button class="btn sm" data-a="fasVoceAdd" data-id="' + esc(c.id) + '" data-i="' + i + '">+ Aggiungi attività</button></div></section>';
-  }).join('') : '<div class="card"><div class="empty">Nessuna fase. Aggiungi le tipologie di lavoro alla commessa per generarle, oppure crea una fase a mano.</div></div>') + '</div>';
+  }).join('') : '<div class="card"><div class="empty">Nessuna fase. Se la commessa ha una tipologia di lavoro, carica la sua checklist qui sopra, oppure crea una fase a mano.</div></div>') + '</div>';
 }
-C.fasVoce = async (d, v, el) => { const c = clone(G('commesse', d.id)); c.fasi[+d.i].voci[+d.j].done = el.checked; await patch('commesse', c.id, { fasi: c.fasi }); };
-A.fasAdd = (d) => { const c = G('commesse', d.id); openForm({ title: 'Nuova fase', fields: [{ k: 'nome', l: 'Nome della fase', req: true }, { k: 'peso', l: 'Peso', t: 'number', hint: 'Più alto = incide di più sull\u2019avanzamento', def: 1 }], onSave: async (v) => { const n = clone(c.fasi || []); n.push({ nome: v.nome, peso: v.peso || 1, voci: [] }); await patch('commesse', c.id, { fasi: n }); } }); };
-A.fasEdit = (d) => { const c = G('commesse', d.id), f = c.fasi[+d.i]; openForm({ title: 'Modifica fase', values: f, fields: [{ k: 'nome', l: 'Nome della fase', req: true }, { k: 'peso', l: 'Peso', t: 'number' }], onSave: async (v) => { const n = clone(c.fasi); n[+d.i].nome = v.nome; n[+d.i].peso = v.peso || 1; await patch('commesse', c.id, { fasi: n }); }, onDelete: async () => { const n = clone(c.fasi); n.splice(+d.i, 1); await patch('commesse', c.id, { fasi: n }); } }); };
-A.fasVoceAdd = (d) => { const c = G('commesse', d.id); openForm({ title: 'Nuove attività', fields: [{ k: 't', l: 'Attività da fare (una per riga: puoi aggiungerne più di una insieme)', t: 'textarea', rows: 6, req: true }], onSave: async (v) => { const righe = String(v.t || '').split('\n').map((x) => x.trim()).filter(Boolean); if (!righe.length) return; const n = clone(c.fasi); righe.forEach((t) => n[+d.i].voci.push({ t: t, done: false })); await patch('commesse', c.id, { fasi: n }); } }); };
-A.fasVoceDel = async (d) => { const c = G('commesse', d.id); if (!(await confirmBox('Eliminare questa attività?', 'Elimina'))) return; const n = clone(c.fasi); n[+d.i].voci.splice(+d.j, 1); await patch('commesse', c.id, { fasi: n }); };
+/* come per la checklist dell'iter: ogni modifica si riflette subito nei dati in locale, prima
+   della conferma del backend, altrimenti spuntare più attività una dopo l'altra in rapida
+   successione può far perdere le prime (stesso bug corretto per l'iter). */
+A.fasiCarica = async (d) => {
+  const t = G('tipiLavoro', d.tipo); if (!t) return;
+  const c = clone(G('commesse', d.id));
+  c.fasi = (c.fasi || []).concat(newFasiDaTipo(t, d.var));
+  applyLocalWrite('commesse', c.id, c);
+  await patch('commesse', c.id, { fasi: c.fasi });
+};
+C.fasVoce = async (d, v, el) => { const c = clone(G('commesse', d.id)); c.fasi[+d.i].voci[+d.j].done = el.checked; applyLocalWrite('commesse', c.id, c); await patch('commesse', c.id, { fasi: c.fasi }); };
+A.fasAdd = (d) => { openForm({ title: 'Nuova fase', fields: [{ k: 'nome', l: 'Nome della fase', req: true }, { k: 'peso', l: 'Peso', t: 'number', hint: 'Più alto = incide di più sull’avanzamento', def: 1 }], onSave: async (v) => { const c = clone(G('commesse', d.id)); c.fasi = c.fasi || []; c.fasi.push({ nome: v.nome, peso: v.peso || 1, voci: [] }); applyLocalWrite('commesse', c.id, c); await patch('commesse', c.id, { fasi: c.fasi }); } }); };
+A.fasEdit = (d) => { const c0 = G('commesse', d.id), f = c0.fasi[+d.i]; openForm({ title: 'Modifica fase', values: f, fields: [{ k: 'nome', l: 'Nome della fase', req: true }, { k: 'peso', l: 'Peso', t: 'number' }], onSave: async (v) => { const c = clone(G('commesse', d.id)); c.fasi[+d.i].nome = v.nome; c.fasi[+d.i].peso = v.peso || 1; applyLocalWrite('commesse', c.id, c); await patch('commesse', c.id, { fasi: c.fasi }); }, onDelete: async () => { const c = clone(G('commesse', d.id)); c.fasi.splice(+d.i, 1); applyLocalWrite('commesse', c.id, c); await patch('commesse', c.id, { fasi: c.fasi }); } }); };
+A.fasVoceAdd = (d) => { openForm({ title: 'Nuove attività', fields: [{ k: 't', l: 'Attività da fare (una per riga: puoi aggiungerne più di una insieme)', t: 'textarea', rows: 6, req: true }], onSave: async (v) => { const righe = String(v.t || '').split('\n').map((x) => x.trim()).filter(Boolean); if (!righe.length) return; const c = clone(G('commesse', d.id)); righe.forEach((t) => c.fasi[+d.i].voci.push({ t: t, done: false })); applyLocalWrite('commesse', c.id, c); await patch('commesse', c.id, { fasi: c.fasi }); } }); };
+A.fasVoceDel = async (d) => { if (!(await confirmBox('Eliminare questa attività?', 'Elimina'))) return; const c = clone(G('commesse', d.id)); c.fasi[+d.i].voci.splice(+d.j, 1); applyLocalWrite('commesse', c.id, c); await patch('commesse', c.id, { fasi: c.fasi }); };
 
 /* --- sicurezza --- */
 const sicFields = () => [{ k: 'tipo', l: 'Documento', t: 'select', req: true, half: true, opts: TIPI_SIC }, { k: 'stato', l: 'Stato', t: 'select', req: true, half: true, opts: STATI_SIC }, { k: 'dataEmissione', l: 'Data emissione', t: 'date', half: true }, { k: 'dataScadenza', l: 'Scadenza', t: 'date', half: true }, { k: 'file', l: 'File', t: 'file' }, { k: 'note', l: 'Note', t: 'textarea' }];
@@ -1205,15 +1225,16 @@ A.ctlEdit = (d) => { const m = G('mezzi', d.id), i = (m.controlli || []).findInd
 /* --- tipologie di lavoro --- */
 const fasiToText = (f) => (f || []).map((x) => x.nome + ': ' + (x.voci || []).join('; ')).join('\n');
 const textToFasi = (t) => String(t || '').split('\n').map((r) => r.trim()).filter(Boolean).map((r) => { const i = r.indexOf(':'); const nome = (i >= 0 ? r.slice(0, i) : r).trim(); const voci = i >= 0 ? r.slice(i + 1).split(';').map((x) => x.trim()).filter(Boolean) : []; return { nome, peso: 1, voci }; });
-const tipoFields = () => [{ k: 'nome', l: 'Nome della tipologia', req: true, half: true }, { k: 'codice', l: 'Codice', half: true }, { k: 'abilitazioniRichieste', l: 'Formazione richiesta ai lavoratori', t: 'multi', opts: TIPI_AB.filter((x) => x[0] !== 'ALTRO').map((x) => [x[0], x[1]]) }, { k: 'docImpresaRichiesti', l: 'Documenti richiesti all\u2019impresa', t: 'multi', opts: TIPI_DOC_AZ.filter((x) => x[0] !== 'ALTRO').map((x) => [x[0], x[1]]) }, { k: 'fasiTxt', l: 'Checklist di cantiere (una fase per riga)', t: 'textarea', rows: 6, hint: 'Formato: Nome fase: attività 1; attività 2; attività 3' }];
+const tipoFields = () => [{ k: 'nome', l: 'Nome della tipologia', req: true, half: true }, { k: 'codice', l: 'Codice', half: true }, { k: 'abilitazioniRichieste', l: 'Formazione richiesta ai lavoratori', t: 'multi', opts: TIPI_AB.filter((x) => x[0] !== 'ALTRO').map((x) => [x[0], x[1]]) }, { k: 'docImpresaRichiesti', l: 'Documenti richiesti all’impresa', t: 'multi', opts: TIPI_DOC_AZ.filter((x) => x[0] !== 'ALTRO').map((x) => [x[0], x[1]]) }, { k: 'fasiNuovoTxt', l: 'Checklist - Nuova installazione (una fase per riga)', t: 'textarea', rows: 6, hint: 'Formato: Nome fase: attività 1; attività 2; attività 3. Lascia vuoto se questo tipo non distingue nuovo/rifacimento.' }, { k: 'fasiRifacimentoTxt', l: 'Checklist - Rifacimento (una fase per riga)', t: 'textarea', rows: 6, hint: 'Stesso formato. Lascia vuoto se non serve.' }];
 function aTipologie() {
   const inc = {};
   D('commesse').forEach((c) => { const tp = c.tipiLavoro || []; if (!tp.length) return; const q = incassatoC(c) / tp.length; tp.forEach((id) => { inc[id] = (inc[id] || 0) + q; }); });
-  const t = tbl([{ h: 'Tipologia', f: (x) => '<b>' + esc(x.nome) + '</b>' }, { h: 'Formazione richiesta', f: (x) => esc((x.abilitazioniRichieste || []).map(abLabel).join(', ')) || '<span class="muted">—</span>' }, { h: 'Documenti impresa', f: (x) => esc((x.docImpresaRichiesti || []).map((k) => lab(TIPI_DOC_AZ, k)).join(', ')) || '<span class="muted">—</span>' }, { h: 'Fasi', r: true, f: (x) => (x.fasiTemplate || []).length }, { h: 'Commesse attive', r: true, f: (x) => D('commesse').filter((c) => ATTIVE.includes(c.stato) && (c.tipiLavoro || []).includes(x.id)).length }, { h: 'Incassato', r: true, f: (x) => eur(inc[x.id] || 0) }], D('tipiLavoro').sort(byStr((x) => x.nome)), { empty: 'Nessuna tipologia di lavoro.', row: (x) => 'data-a="tipEdit" data-id="' + esc(x.id) + '"' });
-  return '<div class="muted small" style="margin-bottom:10px">Ogni tipologia definisce quali abilitazioni servono a impresa e lavoratori e la checklist di partenza. Requisiti indicativi: falli confermare dal consulente della sicurezza. Se una commessa ha più tipologie, l\u2019incassato è ripartito in parti uguali.</div>' + card('Tipologie di lavoro', t, '<button class="btn p sm" data-a="tipNew">+ Tipologia</button>');
+  const nFasi = (x) => (x.fasiNuovo || []).length + (x.fasiRifacimento || []).length + (x.fasiTemplate || []).length;
+  const t = tbl([{ h: 'Tipologia', f: (x) => '<b>' + esc(x.nome) + '</b>' }, { h: 'Formazione richiesta', f: (x) => esc((x.abilitazioniRichieste || []).map(abLabel).join(', ')) || '<span class="muted">—</span>' }, { h: 'Documenti impresa', f: (x) => esc((x.docImpresaRichiesti || []).map((k) => lab(TIPI_DOC_AZ, k)).join(', ')) || '<span class="muted">—</span>' }, { h: 'Checklist', f: (x) => (x.fasiNuovo || []).length || (x.fasiRifacimento || []).length ? esc((x.fasiNuovo || []).length + ' nuovo · ' + (x.fasiRifacimento || []).length + ' rifacimento') : nFasi(x) + ' fasi' }, { h: 'Commesse attive', r: true, f: (x) => D('commesse').filter((c) => ATTIVE.includes(c.stato) && (c.tipiLavoro || []).includes(x.id)).length }, { h: 'Incassato', r: true, f: (x) => eur(inc[x.id] || 0) }], D('tipiLavoro').sort(byStr((x) => x.nome)), { empty: 'Nessuna tipologia di lavoro.', row: (x) => 'data-a="tipEdit" data-id="' + esc(x.id) + '"' });
+  return '<div class="muted small" style="margin-bottom:10px">Ogni tipologia definisce quali abilitazioni servono a impresa e lavoratori e le checklist di partenza per nuova installazione e rifacimento (si scelgono nella scheda Cantiere di ogni commessa). Requisiti indicativi: falli confermare dal consulente della sicurezza. Se una commessa ha più tipologie, l’incassato è ripartito in parti uguali.</div>' + card('Tipologie di lavoro', t, '<button class="btn p sm" data-a="tipNew">+ Tipologia</button>');
 }
-A.tipNew = () => openForm({ title: 'Nuova tipologia di lavoro', wide: true, fields: tipoFields(), values: {}, onSave: (v) => put('tipiLavoro', newId('tipiLavoro'), { nome: v.nome, codice: v.codice, abilitazioniRichieste: v.abilitazioniRichieste, docImpresaRichiesti: v.docImpresaRichiesti, fasiTemplate: textToFasi(v.fasiTxt) }) });
-A.tipEdit = (d) => { const x = G('tipiLavoro', d.id); openForm({ title: 'Tipologia di lavoro', wide: true, fields: tipoFields(), values: Object.assign({}, x, { fasiTxt: fasiToText(x.fasiTemplate) }), onSave: (v) => patch('tipiLavoro', x.id, { nome: v.nome, codice: v.codice, abilitazioniRichieste: v.abilitazioniRichieste, docImpresaRichiesti: v.docImpresaRichiesti, fasiTemplate: textToFasi(v.fasiTxt) }), onDelete: S.admin ? () => remove('tipiLavoro', x.id) : null }); };
+A.tipNew = () => openForm({ title: 'Nuova tipologia di lavoro', wide: true, fields: tipoFields(), values: {}, onSave: (v) => put('tipiLavoro', newId('tipiLavoro'), { nome: v.nome, codice: v.codice, abilitazioniRichieste: v.abilitazioniRichieste, docImpresaRichiesti: v.docImpresaRichiesti, fasiNuovo: textToFasi(v.fasiNuovoTxt), fasiRifacimento: textToFasi(v.fasiRifacimentoTxt) }) });
+A.tipEdit = (d) => { const x = G('tipiLavoro', d.id); openForm({ title: 'Tipologia di lavoro', wide: true, fields: tipoFields(), values: Object.assign({}, x, { fasiNuovoTxt: fasiToText(x.fasiNuovo && x.fasiNuovo.length ? x.fasiNuovo : x.fasiTemplate), fasiRifacimentoTxt: fasiToText(x.fasiRifacimento) }), onSave: (v) => patch('tipiLavoro', x.id, { nome: v.nome, codice: v.codice, abilitazioniRichieste: v.abilitazioniRichieste, docImpresaRichiesti: v.docImpresaRichiesti, fasiNuovo: textToFasi(v.fasiNuovoTxt), fasiRifacimento: textToFasi(v.fasiRifacimentoTxt) }), onDelete: S.admin ? () => remove('tipiLavoro', x.id) : null }); };
 
 /* ---------- documentale ---------- */
 const catPath = (id) => { const c = G('categorie', id); if (!c) return ''; const p = c.parentId && G('categorie', c.parentId); return p ? p.nome + ' / ' + c.nome : c.nome; };
@@ -2507,7 +2528,7 @@ function subscribe(col) {
     if (['commesse', 'commesseElenco', 'clienti', 'assegnazioni', 'assegnazioniG', 'squadre', 'accessi'].includes(col)) maybeSync();
     if (col === 'accessi') { resolveProf(); if (S.route === 'ore' && !S.oreLoading) loadAllOre(S.mese || meseOggi(), true); }
     if (col === 'categorie' || col === 'impostazioni') seedCategorieDefault();
-    if (col === 'tipiLavoro' || col === 'impostazioni') seedTipiLavoroDefault();
+    if (col === 'tipiLavoro' || col === 'impostazioni' || col === 'commesse') seedTipiLavoroDefault();
   }, (err) => { console.warn('db', col, err); S.data[col] = S.data[col] || {}; S.loaded[col] = true; queueRender(); });
 }
 /* la prima volta che l'amministratore arriva su Documentale senza aver ancora creato nessuna
@@ -2553,163 +2574,165 @@ async function seedCategorieDefault() {
 }
 
 /* ---------- tipologie di lavoro di base (checklist di cantiere) ---------- */
-/* Una voce per fase perché il peso (quanto conta sull'avanzamento) è una proprietà della fase,
-   non della singola voce: così ogni attività elencata ha il proprio peso, modificabile poi per
-   ogni singola commessa da "Avanzamento lavori" (la fase resta condivisa, il peso no). */
+/* Ogni tipologia ha due checklist pronte, una per "nuova installazione" e una per
+   "rifacimento": si sceglie quale caricare per ogni commessa dalla sua scheda Cantiere (vedi
+   tabCantiere), non qui — qui restano solo i modelli di partenza. Ogni fase ha un peso (quanto
+   conta sull'avanzamento): resta modificabile per ogni singola commessa da "Avanzamento
+   lavori" dopo che la checklist è stata caricata, senza toccare questo modello. */
 const DEFAULT_TIPI_LAVORO = [
-  { id: 'elettrico_nuova', nome: 'Impianto elettrico - Nuova installazione', fasiTemplate: [
-    { nome: 'Sopralluogo e progetto', peso: 1, voci: ['Sopralluogo e rilievo misure'] },
-    { nome: 'Pratiche e autorizzazioni', peso: 1, voci: ['Pratiche con distributore ed ente comunale'] },
-    { nome: 'Tracce e predisposizioni', peso: 2, voci: ['Tracce a muro e a pavimento'] },
-    { nome: 'Posa tubazioni e cassette', peso: 2, voci: ['Posa tubi corrugati e cassette di derivazione'] },
-    { nome: 'Stesura linee', peso: 3, voci: ['Stesura cavi dorsali e terminali'] },
-    { nome: 'Quadri elettrici', peso: 3, voci: ['Montaggio e cablaggio quadro generale e quadri di zona'] },
-    { nome: 'Montaggio apparecchi', peso: 2, voci: ['Montaggio prese, interruttori e corpi illuminanti'] },
-    { nome: 'Impianto di terra', peso: 1, voci: ['Posa dispersore e collegamento equipotenziale'] },
-    { nome: 'Collaudo e verifiche', peso: 2, voci: ['Prove di isolamento, continuità e differenziali'] },
-    { nome: 'Dichiarazione di conformità', peso: 1, voci: ['Redazione e consegna DiCo'] }
-  ] },
-  { id: 'elettrico_rifacimento', nome: 'Impianto elettrico - Rifacimento', fasiTemplate: [
-    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Rilievo e verifica dello stato esistente'] },
-    { nome: 'Messa fuori servizio', peso: 1, voci: ['Disattivazione e scollegamento impianto esistente'] },
-    { nome: 'Rimozione apparecchi vecchi', peso: 2, voci: ['Rimozione prese, interruttori e corpi illuminanti esistenti'] },
-    { nome: 'Rimozione cavi e tubazioni dismesse', peso: 2, voci: ['Rimozione cablaggi e tubazioni non più utilizzabili'] },
-    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento materiali e RAEE secondo normativa'] },
-    { nome: 'Nuove tracce e predisposizioni', peso: 2, voci: ['Tracce a muro per i nuovi percorsi'] },
-    { nome: 'Cablaggi', peso: 3, voci: ['Stesura nuove linee dorsali e terminali'] },
-    { nome: 'Quadri elettrici', peso: 2, voci: ['Sostituzione o aggiornamento quadro elettrico'] },
-    { nome: 'Montaggio apparecchi nuovi', peso: 2, voci: ['Montaggio prese, interruttori e corpi illuminanti nuovi'] },
-    { nome: 'Verifica impianto di terra', peso: 1, voci: ['Verifica e adeguamento impianto di terra'] },
-    { nome: 'Collaudo e dichiarazione di conformità', peso: 2, voci: ['Prove elettriche e redazione DiCo'] }
-  ] },
-  { id: 'termico_nuova', nome: 'Impianto termico - Nuova installazione', fasiTemplate: [
-    { nome: 'Sopralluogo e dimensionamento', peso: 1, voci: ['Calcolo del fabbisogno termico e scelta del generatore'] },
-    { nome: 'Predisposizione locale tecnico', peso: 1, voci: ['Predisposizione locale caldaia e scarico fumi'] },
-    { nome: 'Posa tubazioni', peso: 3, voci: ['Stesura tubazioni di andata e ritorno'] },
-    { nome: 'Installazione generatore', peso: 2, voci: ['Montaggio e allacciamento caldaia o pompa di calore'] },
-    { nome: 'Installazione terminali', peso: 2, voci: ['Montaggio radiatori, pannelli radianti o fan coil'] },
-    { nome: 'Collettori e valvole', peso: 2, voci: ['Montaggio collettori e valvole termostatiche/di zona'] },
-    { nome: 'Allacciamento alimentazione', peso: 1, voci: ['Allacciamento gas o elettrico del generatore'] },
-    { nome: 'Riempimento e sfiato', peso: 1, voci: ['Riempimento, sfiato e prova a freddo'] },
-    { nome: 'Collaudo e messa in servizio', peso: 2, voci: ['Prova di tenuta, taratura e prima accensione'] },
-    { nome: 'Dichiarazione di conformità e libretto', peso: 1, voci: ['Redazione DiCo e libretto d’impianto'] }
-  ] },
-  { id: 'termico_rifacimento', nome: 'Impianto termico - Rifacimento', fasiTemplate: [
-    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato tubazioni e generatore esistenti'] },
-    { nome: 'Svuotamento impianto', peso: 1, voci: ['Svuotamento circuito e scarico acqua'] },
-    { nome: 'Rimozione generatore vecchio', peso: 2, voci: ['Rimozione caldaia o generatore esistente'] },
-    { nome: 'Rimozione tubazioni e terminali vecchi', peso: 2, voci: ['Rimozione tubazioni e radiatori dismessi'] },
-    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento generatore e materiali secondo normativa'] },
-    { nome: 'Nuove tubazioni', peso: 3, voci: ['Stesura nuove tubazioni'] },
-    { nome: 'Nuovo generatore', peso: 2, voci: ['Installazione e allacciamento nuovo generatore'] },
-    { nome: 'Nuovi terminali', peso: 2, voci: ['Montaggio nuovi radiatori, pannelli o fan coil'] },
-    { nome: 'Riempimento e collaudo', peso: 2, voci: ['Riempimento, sfiato e prova di tenuta'] },
-    { nome: 'Messa in servizio e dichiarazione di conformità', peso: 1, voci: ['Prima accensione, taratura e DiCo'] }
-  ] },
-  { id: 'idraulico_nuova', nome: 'Impianto idraulico - Nuova installazione', fasiTemplate: [
-    { nome: 'Sopralluogo e progetto', peso: 1, voci: ['Rilievo e progetto distribuzione acqua e scarichi'] },
-    { nome: 'Tracce e predisposizioni', peso: 2, voci: ['Tracce a muro e a pavimento per le tubazioni'] },
-    { nome: 'Adduzione acqua', peso: 3, voci: ['Stesura tubazioni acqua fredda e calda'] },
-    { nome: 'Scarichi', peso: 3, voci: ['Stesura tubazioni di scarico e ventilazione'] },
-    { nome: 'Allacciamento a rete idrica e fognaria', peso: 1, voci: ['Allacciamento a rete idrica e fognatura comunale'] },
-    { nome: 'Installazione sanitari', peso: 2, voci: ['Montaggio sanitari e rubinetteria'] },
-    { nome: 'Installazione scaldacqua/autoclave', peso: 1, voci: ['Installazione scaldabagno o autoclave, se previsti'] },
-    { nome: 'Prova di tenuta', peso: 1, voci: ['Prova di pressione e tenuta impianto'] },
-    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Verifica funzionamento e consegna'] }
-  ] },
-  { id: 'idraulico_rifacimento', nome: 'Impianto idraulico - Rifacimento', fasiTemplate: [
-    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato tubazioni e sanitari esistenti'] },
-    { nome: 'Chiusura acqua e svuotamento', peso: 1, voci: ['Intercettazione e svuotamento impianto'] },
-    { nome: 'Rimozione sanitari vecchi', peso: 2, voci: ['Rimozione sanitari e rubinetteria esistenti'] },
-    { nome: 'Rimozione tubazioni vecchie', peso: 2, voci: ['Rimozione tubazioni dismesse'] },
-    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento sanitari e materiali'] },
-    { nome: 'Nuove tubazioni adduzione', peso: 3, voci: ['Stesura nuove tubazioni acqua fredda e calda'] },
-    { nome: 'Nuove tubazioni scarico', peso: 2, voci: ['Stesura nuove tubazioni di scarico'] },
-    { nome: 'Montaggio sanitari nuovi', peso: 2, voci: ['Montaggio nuovi sanitari e rubinetteria'] },
-    { nome: 'Prova di tenuta', peso: 1, voci: ['Prova di pressione e tenuta'] },
-    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Verifica funzionamento e consegna'] }
-  ] },
-  { id: 'tecnologico_nuova', nome: 'Impianto tecnologico - Nuova installazione', fasiTemplate: [
-    { nome: 'Sopralluogo e progetto', peso: 1, voci: ['Rilievo e progetto impianti speciali'] },
-    { nome: 'Predisposizioni', peso: 2, voci: ['Tracce, tubazioni e cassette per il cablaggio strutturato'] },
-    { nome: 'Cablaggio dati e fonia', peso: 2, voci: ['Stesura cavi rete dati e fonia'] },
-    { nome: 'Impianto citofonico/videocitofonico', peso: 1, voci: ['Posa e cablaggio citofono o videocitofono'] },
-    { nome: 'Impianto TVCC', peso: 2, voci: ['Installazione telecamere, cablaggio e NVR'] },
-    { nome: 'Impianto antintrusione', peso: 1, voci: ['Installazione sensori, centrale e sirene'] },
-    { nome: 'Domotica e automazione', peso: 2, voci: ['Installazione moduli domotici e configurazione'] },
-    { nome: 'Rack e apparati attivi', peso: 1, voci: ['Montaggio rack, switch e apparati di rete'] },
-    { nome: 'Configurazione e collaudo', peso: 2, voci: ['Configurazione software e test funzionale'] },
-    { nome: 'Documentazione e consegna', peso: 1, voci: ['Schemi as-built e formazione al cliente'] }
-  ] },
-  { id: 'tecnologico_rifacimento', nome: 'Impianto tecnologico - Rifacimento', fasiTemplate: [
-    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato impianti speciali esistenti'] },
-    { nome: 'Rimozione apparecchi vecchi', peso: 2, voci: ['Rimozione telecamere, centrali o apparati obsoleti'] },
-    { nome: 'Rimozione cablaggi dismessi', peso: 1, voci: ['Rimozione cavi non più utilizzabili'] },
-    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento apparecchiature elettroniche (RAEE)'] },
-    { nome: 'Nuovo cablaggio', peso: 2, voci: ['Stesura nuovi cavi dati, fonia e TVCC'] },
-    { nome: 'Nuovi apparecchi TVCC/antintrusione', peso: 2, voci: ['Installazione nuove telecamere, sensori e centrale'] },
-    { nome: 'Aggiornamento domotica', peso: 2, voci: ['Installazione o aggiornamento moduli domotici'] },
-    { nome: 'Rack e apparati attivi', peso: 1, voci: ['Sostituzione o aggiornamento switch e apparati'] },
-    { nome: 'Configurazione e collaudo', peso: 2, voci: ['Configurazione e test funzionale'] },
-    { nome: 'Documentazione e consegna', peso: 1, voci: ['Aggiornamento schemi e formazione al cliente'] }
-  ] },
-  { id: 'fotovoltaico_nuova', nome: 'Impianto fotovoltaico - Nuova installazione', fasiTemplate: [
-    { nome: 'Sopralluogo e progetto', peso: 1, voci: ['Rilievo tetto/area e progetto impianto'] },
-    { nome: 'Pratiche e autorizzazioni', peso: 1, voci: ['Pratiche GSE, distributore ed ente comunale'] },
-    { nome: 'Strutture di sostegno', peso: 2, voci: ['Montaggio strutture e staffe di ancoraggio'] },
-    { nome: 'Posa pannelli', peso: 3, voci: ['Installazione e fissaggio moduli fotovoltaici'] },
-    { nome: 'Cablaggio DC', peso: 2, voci: ['Cablaggio stringhe e collegamento pannelli'] },
-    { nome: 'Installazione inverter', peso: 2, voci: ['Montaggio e collegamento inverter'] },
-    { nome: 'Quadri e protezioni', peso: 1, voci: ['Installazione quadro DC/AC e protezioni'] },
-    { nome: 'Cablaggio AC e allaccio', peso: 1, voci: ['Collegamento a quadro generale e rete'] },
-    { nome: 'Sistema di accumulo', peso: 1, voci: ['Installazione batteria di accumulo, se prevista'] },
-    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Test funzionale e prima connessione'] },
-    { nome: 'Pratiche di connessione e GSE', peso: 1, voci: ['Comunicazione fine lavori e attivazione GSE'] }
-  ] },
-  { id: 'fotovoltaico_rifacimento', nome: 'Impianto fotovoltaico - Rifacimento', fasiTemplate: [
-    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato pannelli, inverter e cablaggi'] },
-    { nome: 'Disattivazione impianto', peso: 1, voci: ['Messa fuori servizio impianto esistente'] },
-    { nome: 'Rimozione pannelli/inverter vecchi', peso: 2, voci: ['Rimozione moduli e inverter da sostituire'] },
-    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento pannelli e componenti secondo normativa'] },
-    { nome: 'Verifica strutture', peso: 1, voci: ['Verifica e adeguamento strutture di sostegno'] },
-    { nome: 'Posa nuovi pannelli', peso: 3, voci: ['Installazione nuovi moduli fotovoltaici'] },
-    { nome: 'Nuovo cablaggio DC', peso: 2, voci: ['Cablaggio nuove stringhe'] },
-    { nome: 'Nuovo inverter', peso: 2, voci: ['Installazione e collegamento nuovo inverter'] },
-    { nome: 'Quadri e protezioni', peso: 1, voci: ['Aggiornamento quadro e protezioni'] },
-    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Test funzionale e riconnessione'] },
-    { nome: 'Aggiornamento pratiche GSE', peso: 1, voci: ['Comunicazione variazione impianto al GSE'] }
-  ] },
-  { id: 'clima_nuova', nome: 'Impianto di climatizzazione - Nuova installazione', fasiTemplate: [
-    { nome: 'Sopralluogo e dimensionamento', peso: 1, voci: ['Calcolo carichi termici e scelta delle unità'] },
-    { nome: 'Predisposizioni', peso: 1, voci: ['Predisposizione fori di passaggio e scarichi condensa'] },
-    { nome: 'Installazione unità esterna', peso: 2, voci: ['Montaggio e fissaggio unità esterna/e'] },
-    { nome: 'Installazione unità interne', peso: 2, voci: ['Montaggio split, canalizzati o cassette'] },
-    { nome: 'Linee frigorifere', peso: 3, voci: ['Posa e coibentazione linee frigorifere'] },
-    { nome: 'Scarico condensa', peso: 1, voci: ['Posa tubazioni scarico condensa'] },
-    { nome: 'Cablaggio elettrico', peso: 1, voci: ['Collegamento elettrico unità interne ed esterne'] },
-    { nome: 'Vuoto e carica gas', peso: 2, voci: ['Prova del vuoto e carica del refrigerante'] },
-    { nome: 'Collaudo e messa in servizio', peso: 1, voci: ['Test funzionale e regolazione'] },
-    { nome: 'Dichiarazione di conformità', peso: 1, voci: ['Redazione DiCo e libretto d’impianto'] }
-  ] },
-  { id: 'clima_rifacimento', nome: 'Impianto di climatizzazione - Rifacimento', fasiTemplate: [
-    { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ['Verifica stato unità e linee esistenti'] },
-    { nome: 'Recupero gas refrigerante', peso: 1, voci: ['Recupero gas dall’impianto esistente'] },
-    { nome: 'Rimozione unità vecchie', peso: 2, voci: ['Rimozione unità interne ed esterne dismesse'] },
-    { nome: 'Rimozione linee vecchie', peso: 1, voci: ['Rimozione linee frigorifere non riutilizzabili'] },
-    { nome: 'Smaltimento', peso: 1, voci: ['Smaltimento unità e gas secondo normativa'] },
-    { nome: 'Nuove linee frigorifere', peso: 3, voci: ['Posa e coibentazione nuove linee'] },
-    { nome: 'Nuove unità interne', peso: 2, voci: ['Montaggio nuove unità interne'] },
-    { nome: 'Nuova unità esterna', peso: 2, voci: ['Montaggio nuova unità esterna'] },
-    { nome: 'Vuoto e carica gas', peso: 2, voci: ['Prova del vuoto e carica del refrigerante'] },
-    { nome: 'Collaudo e dichiarazione di conformità', peso: 1, voci: ['Test funzionale e redazione DiCo'] }
-  ] }
+  { id: 'elettrico', nome: 'Impianto elettrico', fasiNuovo: [
+      { nome: 'Sopralluogo e progetto', peso: 1, voci: ["Sopralluogo e rilievo misure"] },
+      { nome: 'Pratiche e autorizzazioni', peso: 1, voci: ["Pratiche con distributore ed ente comunale"] },
+      { nome: 'Tracce e predisposizioni', peso: 2, voci: ["Tracce a muro e a pavimento"] },
+      { nome: 'Posa tubazioni e cassette', peso: 2, voci: ["Posa tubi corrugati e cassette di derivazione"] },
+      { nome: 'Stesura linee', peso: 3, voci: ["Stesura cavi dorsali e terminali"] },
+      { nome: 'Quadri elettrici', peso: 3, voci: ["Montaggio e cablaggio quadro generale e quadri di zona"] },
+      { nome: 'Montaggio apparecchi', peso: 2, voci: ["Montaggio prese, interruttori e corpi illuminanti"] },
+      { nome: 'Impianto di terra', peso: 1, voci: ["Posa dispersore e collegamento equipotenziale"] },
+      { nome: 'Collaudo e verifiche', peso: 2, voci: ["Prove di isolamento, continuità e differenziali"] },
+      { nome: 'Dichiarazione di conformità', peso: 1, voci: ["Redazione e consegna DiCo"] }
+    ], fasiRifacimento: [
+      { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ["Rilievo e verifica dello stato esistente"] },
+      { nome: 'Messa fuori servizio', peso: 1, voci: ["Disattivazione e scollegamento impianto esistente"] },
+      { nome: 'Rimozione apparecchi vecchi', peso: 2, voci: ["Rimozione prese, interruttori e corpi illuminanti esistenti"] },
+      { nome: 'Rimozione cavi e tubazioni dismesse', peso: 2, voci: ["Rimozione cablaggi e tubazioni non più utilizzabili"] },
+      { nome: 'Smaltimento', peso: 1, voci: ["Smaltimento materiali e RAEE secondo normativa"] },
+      { nome: 'Nuove tracce e predisposizioni', peso: 2, voci: ["Tracce a muro per i nuovi percorsi"] },
+      { nome: 'Cablaggi', peso: 3, voci: ["Stesura nuove linee dorsali e terminali"] },
+      { nome: 'Quadri elettrici', peso: 2, voci: ["Sostituzione o aggiornamento quadro elettrico"] },
+      { nome: 'Montaggio apparecchi nuovi', peso: 2, voci: ["Montaggio prese, interruttori e corpi illuminanti nuovi"] },
+      { nome: 'Verifica impianto di terra', peso: 1, voci: ["Verifica e adeguamento impianto di terra"] },
+      { nome: 'Collaudo e dichiarazione di conformità', peso: 2, voci: ["Prove elettriche e redazione DiCo"] }
+    ] },
+  { id: 'termico', nome: 'Impianto termico', fasiNuovo: [
+      { nome: 'Sopralluogo e dimensionamento', peso: 1, voci: ["Calcolo del fabbisogno termico e scelta del generatore"] },
+      { nome: 'Predisposizione locale tecnico', peso: 1, voci: ["Predisposizione locale caldaia e scarico fumi"] },
+      { nome: 'Posa tubazioni', peso: 3, voci: ["Stesura tubazioni di andata e ritorno"] },
+      { nome: 'Installazione generatore', peso: 2, voci: ["Montaggio e allacciamento caldaia o pompa di calore"] },
+      { nome: 'Installazione terminali', peso: 2, voci: ["Montaggio radiatori, pannelli radianti o fan coil"] },
+      { nome: 'Collettori e valvole', peso: 2, voci: ["Montaggio collettori e valvole termostatiche/di zona"] },
+      { nome: 'Allacciamento alimentazione', peso: 1, voci: ["Allacciamento gas o elettrico del generatore"] },
+      { nome: 'Riempimento e sfiato', peso: 1, voci: ["Riempimento, sfiato e prova a freddo"] },
+      { nome: 'Collaudo e messa in servizio', peso: 2, voci: ["Prova di tenuta, taratura e prima accensione"] },
+      { nome: 'Dichiarazione di conformità e libretto', peso: 1, voci: ["Redazione DiCo e libretto d\u2019impianto"] }
+    ], fasiRifacimento: [
+      { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ["Verifica stato tubazioni e generatore esistenti"] },
+      { nome: 'Svuotamento impianto', peso: 1, voci: ["Svuotamento circuito e scarico acqua"] },
+      { nome: 'Rimozione generatore vecchio', peso: 2, voci: ["Rimozione caldaia o generatore esistente"] },
+      { nome: 'Rimozione tubazioni e terminali vecchi', peso: 2, voci: ["Rimozione tubazioni e radiatori dismessi"] },
+      { nome: 'Smaltimento', peso: 1, voci: ["Smaltimento generatore e materiali secondo normativa"] },
+      { nome: 'Nuove tubazioni', peso: 3, voci: ["Stesura nuove tubazioni"] },
+      { nome: 'Nuovo generatore', peso: 2, voci: ["Installazione e allacciamento nuovo generatore"] },
+      { nome: 'Nuovi terminali', peso: 2, voci: ["Montaggio nuovi radiatori, pannelli o fan coil"] },
+      { nome: 'Riempimento e collaudo', peso: 2, voci: ["Riempimento, sfiato e prova di tenuta"] },
+      { nome: 'Messa in servizio e dichiarazione di conformità', peso: 1, voci: ["Prima accensione, taratura e DiCo"] }
+    ] },
+  { id: 'idraulico', nome: 'Impianto idraulico', fasiNuovo: [
+      { nome: 'Sopralluogo e progetto', peso: 1, voci: ["Rilievo e progetto distribuzione acqua e scarichi"] },
+      { nome: 'Tracce e predisposizioni', peso: 2, voci: ["Tracce a muro e a pavimento per le tubazioni"] },
+      { nome: 'Adduzione acqua', peso: 3, voci: ["Stesura tubazioni acqua fredda e calda"] },
+      { nome: 'Scarichi', peso: 3, voci: ["Stesura tubazioni di scarico e ventilazione"] },
+      { nome: 'Allacciamento a rete idrica e fognaria', peso: 1, voci: ["Allacciamento a rete idrica e fognatura comunale"] },
+      { nome: 'Installazione sanitari', peso: 2, voci: ["Montaggio sanitari e rubinetteria"] },
+      { nome: 'Installazione scaldacqua/autoclave', peso: 1, voci: ["Installazione scaldabagno o autoclave, se previsti"] },
+      { nome: 'Prova di tenuta', peso: 1, voci: ["Prova di pressione e tenuta impianto"] },
+      { nome: 'Collaudo e messa in servizio', peso: 1, voci: ["Verifica funzionamento e consegna"] }
+    ], fasiRifacimento: [
+      { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ["Verifica stato tubazioni e sanitari esistenti"] },
+      { nome: 'Chiusura acqua e svuotamento', peso: 1, voci: ["Intercettazione e svuotamento impianto"] },
+      { nome: 'Rimozione sanitari vecchi', peso: 2, voci: ["Rimozione sanitari e rubinetteria esistenti"] },
+      { nome: 'Rimozione tubazioni vecchie', peso: 2, voci: ["Rimozione tubazioni dismesse"] },
+      { nome: 'Smaltimento', peso: 1, voci: ["Smaltimento sanitari e materiali"] },
+      { nome: 'Nuove tubazioni adduzione', peso: 3, voci: ["Stesura nuove tubazioni acqua fredda e calda"] },
+      { nome: 'Nuove tubazioni scarico', peso: 2, voci: ["Stesura nuove tubazioni di scarico"] },
+      { nome: 'Montaggio sanitari nuovi', peso: 2, voci: ["Montaggio nuovi sanitari e rubinetteria"] },
+      { nome: 'Prova di tenuta', peso: 1, voci: ["Prova di pressione e tenuta"] },
+      { nome: 'Collaudo e messa in servizio', peso: 1, voci: ["Verifica funzionamento e consegna"] }
+    ] },
+  { id: 'tecnologico', nome: 'Impianto tecnologico', fasiNuovo: [
+      { nome: 'Sopralluogo e progetto', peso: 1, voci: ["Rilievo e progetto impianti speciali"] },
+      { nome: 'Predisposizioni', peso: 2, voci: ["Tracce, tubazioni e cassette per il cablaggio strutturato"] },
+      { nome: 'Cablaggio dati e fonia', peso: 2, voci: ["Stesura cavi rete dati e fonia"] },
+      { nome: 'Impianto citofonico/videocitofonico', peso: 1, voci: ["Posa e cablaggio citofono o videocitofono"] },
+      { nome: 'Impianto TVCC', peso: 2, voci: ["Installazione telecamere, cablaggio e NVR"] },
+      { nome: 'Impianto antintrusione', peso: 1, voci: ["Installazione sensori, centrale e sirene"] },
+      { nome: 'Domotica e automazione', peso: 2, voci: ["Installazione moduli domotici e configurazione"] },
+      { nome: 'Rack e apparati attivi', peso: 1, voci: ["Montaggio rack, switch e apparati di rete"] },
+      { nome: 'Configurazione e collaudo', peso: 2, voci: ["Configurazione software e test funzionale"] },
+      { nome: 'Documentazione e consegna', peso: 1, voci: ["Schemi as-built e formazione al cliente"] }
+    ], fasiRifacimento: [
+      { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ["Verifica stato impianti speciali esistenti"] },
+      { nome: 'Rimozione apparecchi vecchi', peso: 2, voci: ["Rimozione telecamere, centrali o apparati obsoleti"] },
+      { nome: 'Rimozione cablaggi dismessi', peso: 1, voci: ["Rimozione cavi non più utilizzabili"] },
+      { nome: 'Smaltimento', peso: 1, voci: ["Smaltimento apparecchiature elettroniche (RAEE)"] },
+      { nome: 'Nuovo cablaggio', peso: 2, voci: ["Stesura nuovi cavi dati, fonia e TVCC"] },
+      { nome: 'Nuovi apparecchi TVCC/antintrusione', peso: 2, voci: ["Installazione nuove telecamere, sensori e centrale"] },
+      { nome: 'Aggiornamento domotica', peso: 2, voci: ["Installazione o aggiornamento moduli domotici"] },
+      { nome: 'Rack e apparati attivi', peso: 1, voci: ["Sostituzione o aggiornamento switch e apparati"] },
+      { nome: 'Configurazione e collaudo', peso: 2, voci: ["Configurazione e test funzionale"] },
+      { nome: 'Documentazione e consegna', peso: 1, voci: ["Aggiornamento schemi e formazione al cliente"] }
+    ] },
+  { id: 'fotovoltaico', nome: 'Impianto fotovoltaico', fasiNuovo: [
+      { nome: 'Sopralluogo e progetto', peso: 1, voci: ["Rilievo tetto/area e progetto impianto"] },
+      { nome: 'Pratiche e autorizzazioni', peso: 1, voci: ["Pratiche GSE, distributore ed ente comunale"] },
+      { nome: 'Strutture di sostegno', peso: 2, voci: ["Montaggio strutture e staffe di ancoraggio"] },
+      { nome: 'Posa pannelli', peso: 3, voci: ["Installazione e fissaggio moduli fotovoltaici"] },
+      { nome: 'Cablaggio DC', peso: 2, voci: ["Cablaggio stringhe e collegamento pannelli"] },
+      { nome: 'Installazione inverter', peso: 2, voci: ["Montaggio e collegamento inverter"] },
+      { nome: 'Quadri e protezioni', peso: 1, voci: ["Installazione quadro DC/AC e protezioni"] },
+      { nome: 'Cablaggio AC e allaccio', peso: 1, voci: ["Collegamento a quadro generale e rete"] },
+      { nome: 'Sistema di accumulo', peso: 1, voci: ["Installazione batteria di accumulo, se prevista"] },
+      { nome: 'Collaudo e messa in servizio', peso: 1, voci: ["Test funzionale e prima connessione"] },
+      { nome: 'Pratiche di connessione e GSE', peso: 1, voci: ["Comunicazione fine lavori e attivazione GSE"] }
+    ], fasiRifacimento: [
+      { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ["Verifica stato pannelli, inverter e cablaggi"] },
+      { nome: 'Disattivazione impianto', peso: 1, voci: ["Messa fuori servizio impianto esistente"] },
+      { nome: 'Rimozione pannelli/inverter vecchi', peso: 2, voci: ["Rimozione moduli e inverter da sostituire"] },
+      { nome: 'Smaltimento', peso: 1, voci: ["Smaltimento pannelli e componenti secondo normativa"] },
+      { nome: 'Verifica strutture', peso: 1, voci: ["Verifica e adeguamento strutture di sostegno"] },
+      { nome: 'Posa nuovi pannelli', peso: 3, voci: ["Installazione nuovi moduli fotovoltaici"] },
+      { nome: 'Nuovo cablaggio DC', peso: 2, voci: ["Cablaggio nuove stringhe"] },
+      { nome: 'Nuovo inverter', peso: 2, voci: ["Installazione e collegamento nuovo inverter"] },
+      { nome: 'Quadri e protezioni', peso: 1, voci: ["Aggiornamento quadro e protezioni"] },
+      { nome: 'Collaudo e messa in servizio', peso: 1, voci: ["Test funzionale e riconnessione"] },
+      { nome: 'Aggiornamento pratiche GSE', peso: 1, voci: ["Comunicazione variazione impianto al GSE"] }
+    ] },
+  { id: 'clima', nome: 'Impianto di climatizzazione', fasiNuovo: [
+      { nome: 'Sopralluogo e dimensionamento', peso: 1, voci: ["Calcolo carichi termici e scelta delle unità"] },
+      { nome: 'Predisposizioni', peso: 1, voci: ["Predisposizione fori di passaggio e scarichi condensa"] },
+      { nome: 'Installazione unità esterna', peso: 2, voci: ["Montaggio e fissaggio unità esterna/e"] },
+      { nome: 'Installazione unità interne', peso: 2, voci: ["Montaggio split, canalizzati o cassette"] },
+      { nome: 'Linee frigorifere', peso: 3, voci: ["Posa e coibentazione linee frigorifere"] },
+      { nome: 'Scarico condensa', peso: 1, voci: ["Posa tubazioni scarico condensa"] },
+      { nome: 'Cablaggio elettrico', peso: 1, voci: ["Collegamento elettrico unità interne ed esterne"] },
+      { nome: 'Vuoto e carica gas', peso: 2, voci: ["Prova del vuoto e carica del refrigerante"] },
+      { nome: 'Collaudo e messa in servizio', peso: 1, voci: ["Test funzionale e regolazione"] },
+      { nome: 'Dichiarazione di conformità', peso: 1, voci: ["Redazione DiCo e libretto d\u2019impianto"] }
+    ], fasiRifacimento: [
+      { nome: 'Sopralluogo impianto esistente', peso: 1, voci: ["Verifica stato unità e linee esistenti"] },
+      { nome: 'Recupero gas refrigerante', peso: 1, voci: ["Recupero gas dall\u2019impianto esistente"] },
+      { nome: 'Rimozione unità vecchie', peso: 2, voci: ["Rimozione unità interne ed esterne dismesse"] },
+      { nome: 'Rimozione linee vecchie', peso: 1, voci: ["Rimozione linee frigorifere non riutilizzabili"] },
+      { nome: 'Smaltimento', peso: 1, voci: ["Smaltimento unità e gas secondo normativa"] },
+      { nome: 'Nuove linee frigorifere', peso: 3, voci: ["Posa e coibentazione nuove linee"] },
+      { nome: 'Nuove unità interne', peso: 2, voci: ["Montaggio nuove unità interne"] },
+      { nome: 'Nuova unità esterna', peso: 2, voci: ["Montaggio nuova unità esterna"] },
+      { nome: 'Vuoto e carica gas', peso: 2, voci: ["Prova del vuoto e carica del refrigerante"] },
+      { nome: 'Collaudo e dichiarazione di conformità', peso: 1, voci: ["Test funzionale e redazione DiCo"] }
+    ] }
 ];
+/* una primissima versione di questo seed creava 12 tipologie separate (una per ogni coppia
+   tipo+variante): ripensata subito dopo in una forma migliore (6 tipologie, con la scelta
+   nuovo/rifacimento spostata nella commessa, vedi tabCantiere) — questi sono gli id di quella
+   versione precedente, da togliere se erano arrivati a crearsi prima del ripensamento. */
+const TIPI_LAVORO_SEED_OBSOLETI = ['tipo-elettrico_nuova', 'tipo-elettrico_rifacimento', 'tipo-termico_nuova', 'tipo-termico_rifacimento', 'tipo-idraulico_nuova', 'tipo-idraulico_rifacimento', 'tipo-tecnologico_nuova', 'tipo-tecnologico_rifacimento', 'tipo-fotovoltaico_nuova', 'tipo-fotovoltaico_rifacimento', 'tipo-clima_nuova', 'tipo-clima_rifacimento'];
 let tipiLavoroSeeding = false;
 async function seedTipiLavoroDefault() {
-  if (!S.admin || !db || tipiLavoroSeeding || !S.loaded.tipiLavoro || !S.loaded.impostazioni) return;
+  if (!S.admin || !db || tipiLavoroSeeding || !S.loaded.tipiLavoro || !S.loaded.impostazioni || !S.loaded.commesse) return;
   const fatte = CFG('tipiLavoroSeed').fatte || [];
   const mancano = DEFAULT_TIPI_LAVORO.filter((r) => !fatte.includes('tipo-' + r.id));
-  if (!mancano.length) return;
+  const obsoleti = TIPI_LAVORO_SEED_OBSOLETI.filter((rid) => G('tipiLavoro', rid) && !D('commesse').some((c) => (c.tipiLavoro || []).includes(rid)));
+  if (!mancano.length && !obsoleti.length) return;
   tipiLavoroSeeding = true;
   try {
     const nuoviCodici = [];
@@ -2717,11 +2740,12 @@ async function seedTipiLavoroDefault() {
       const rid = 'tipo-' + r.id;
       nuoviCodici.push(rid);
       if (!G('tipiLavoro', rid)) {
-        await db.doc('tipiLavoro/' + rid).set({ nome: r.nome, codice: '', abilitazioniRichieste: [], docImpresaRichiesti: [], fasiTemplate: r.fasiTemplate });
+        await db.doc('tipiLavoro/' + rid).set({ nome: r.nome, codice: '', abilitazioniRichieste: [], docImpresaRichiesti: [], fasiNuovo: r.fasiNuovo, fasiRifacimento: r.fasiRifacimento });
       }
     }
-    await db.doc('impostazioni/tipiLavoroSeed').set({ fatte: fatte.concat(nuoviCodici) });
-    toast('Aggiunte le tipologie di lavoro di base, con checklist di cantiere già pronta (modificabile da Azienda → Tipologie di lavoro).');
+    for (const rid of obsoleti) { try { await db.doc('tipiLavoro/' + rid).delete(); } catch (e) { /* ignora */ } }
+    if (nuoviCodici.length) await db.doc('impostazioni/tipiLavoroSeed').set({ fatte: fatte.concat(nuoviCodici) });
+    if (mancano.length) toast('Aggiunte le tipologie di lavoro di base: nella scheda di ogni commessa, sezione Cantiere, si sceglie nuova installazione o rifacimento per caricare la checklist pronta.');
   } catch (e) { /* se qualcosa fallisce a metà, riprova al prossimo caricamento della pagina */ }
   finally { tipiLavoroSeeding = false; }
 }
