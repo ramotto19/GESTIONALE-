@@ -73,15 +73,27 @@ function handle(body) {
 }
 
 /* ---------- identità ---------- */
+/* Verificare il token con Google (riga sotto) è una chiamata di rete: l'app la fa ad ogni
+   singola richiesta (ogni 30 secondi per ogni persona collegata, più ogni salvataggio), anche
+   se il token non è cambiato dall'ultima volta. Il risultato per lo STESSO token non cambia
+   finché non scade, quindi si tiene in cache per pochi minuti: niente di meno sicuro (un
+   token scaduto o falso continua a essere rifiutato, semplicemente non lo si richiede di
+   nuovo a Google se lo si è già verificato da poco), solo più veloce. */
 function verifyToken(idToken) {
   if (!idToken) throw new Error('Token mancante: accedi di nuovo.');
   if (!CLIENT_ID || CLIENT_ID.indexOf('INSERISCI_QUI') === 0) throw new Error('Il backend non è configurato: imposta CLIENT_ID in cima a Code.gs.');
+  var cache = CacheService.getScriptCache();
+  var key = 'tok_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, idToken));
+  var cached = cache.get(key);
+  if (cached) return JSON.parse(cached);
   var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), { muteHttpExceptions: true });
   if (res.getResponseCode() !== 200) throw new Error('Sessione scaduta: accedi di nuovo.');
   var info = JSON.parse(res.getContentText());
   if (info.aud !== CLIENT_ID) throw new Error('Token non valido per questa applicazione.');
   if (info.email_verified !== 'true' && info.email_verified !== true) throw new Error('Email Google non verificata.');
-  return { email: String(info.email).toLowerCase(), name: info.name || info.email };
+  var out = { email: String(info.email).toLowerCase(), name: info.name || info.email };
+  try { cache.put(key, JSON.stringify(out), 300); } catch (e) { /* cache piena: non è un problema, si continua senza */ }
+  return out;
 }
 
 /* Il primo utente che accede diventa automaticamente amministratore.
