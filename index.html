@@ -2263,6 +2263,9 @@ function driveBrowseClick(btn) {
        vince sempre il caricamento del file locale invece del link diretto appena scelto */
     const fileInput = document.getElementById(targetId.replace(/_url$/, ''));
     if (fileInput) fileInput.value = '';
+    /* conferma visibile che è stato collegato il file esistente, non caricata una copia:
+       senza, non è ovvio all'utente che il salvataggio userà il link e non un caricamento */
+    toast('Collegato a «' + picked.name + '»: al salvataggio non verrà caricata nessuna copia.');
   })();
 }
 async function uploadDirectToDrive(file) {
