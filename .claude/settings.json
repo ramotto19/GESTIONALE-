@@ -11,7 +11,7 @@
     }
   },
   "enabledPlugins": {
-    "claude-mem@thedotmack": true,
+    "claude-mem-cowork@thedotmack": true,
     "agent-skills@addy-agent-skills": true,
     "claude-code-setup@claude-plugins-official": true
   }
