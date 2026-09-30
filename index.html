@@ -1029,7 +1029,17 @@ A.fasciaNew = async (d) => {
 };
 A.fasciaEdit = (d) => editSub({ col: 'assegnazioniG', id: d.s + '_' + d.d, key: 'fasce', i: d.i, title: 'Fascia oraria', fields: fasciaFields(), map: fasciaMap });
 A.formCancel = () => closeModal();
-A.formDel = async () => { const f = FORM; if (!f || !f.onDelete) return; if (!(await confirmBox('Eliminare definitivamente?', 'Elimina'))) return; try { await f.onDelete(); closeModal(); } catch (e) { toast(errMsg(e), 'err'); } };
+A.formDel = async () => {
+  const f = FORM; if (!f || !f.onDelete) return;
+  if (!(await confirmBox('Eliminare definitivamente?', 'Elimina'))) return;
+  /* la conferma si chiude subito: senza questo, dal click a quando l'eliminazione finisce
+     davvero non cambia nulla a video e sembra che l'app si sia bloccata, anche se in realtà
+     sta solo aspettando la risposta del backend */
+  const btn = document.querySelector('[data-a="formDel"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Eliminazione…'; }
+  try { await f.onDelete(); closeModal(); }
+  catch (e) { toast(errMsg(e), 'err'); if (btn) { btn.disabled = false; btn.textContent = 'Elimina'; } }
+};
 
 /* ---------- scadenzario ---------- */
 function vScadenzario() {

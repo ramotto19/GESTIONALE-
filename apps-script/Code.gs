@@ -179,9 +179,15 @@ function sheetFor(col) {
   _sheetCache[col] = sh;
   return sh;
 }
+/* Legge solo la colonna A (gli id), non l'intero foglio: prima leggeva anche la colonna con il
+   JSON di ogni riga (a volte grande, es. una commessa con iter e checklist) solo per scartarlo
+   subito dopo — un lavoro inutile ripetuto a ogni singola lettura/scrittura/eliminazione, che
+   con molte righe si sentiva soprattutto nelle eliminazioni. */
 function findRow(sh, id) {
-  var vals = sh.getDataRange().getValues();
-  for (var i = 1; i < vals.length; i++) if (String(vals[i][0]) === String(id)) return i + 1;
+  var last = sh.getLastRow();
+  if (last < 2) return -1;
+  var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(id)) return i + 2;
   return -1;
 }
 function readAll(col) {
