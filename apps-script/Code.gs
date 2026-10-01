@@ -298,3 +298,117 @@ function todayStr() {
   var d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
+
+/* ---------- migrazione una tantum: sposta gli allegati già caricati nelle sottocartelle ---------- */
+/* Prima di questa modifica tutti i file finivano nell'unica cartella radice "Gestionale
+   Impianti - Allegati". Questa funzione sposta quelli già presenti nelle stesse sottocartelle
+   che userebbe un caricamento nuovo (Commesse/<commessa>/Sicurezza, Personale/<dipendente>/
+   Formazione, ecc.), cosi' anche i documenti caricati prima si ritrovano organizzati.
+   Si può rilanciare più volte senza problemi: ogni volta sposta solo i file ancora nella
+   cartella radice (quelli già spostati in una sottocartella non vengono più toccati), e non
+   tocca MAI un file semplicemente collegato con un link "Oppure link a Google Drive" (quei
+   file non sono dentro questa cartella, restano dove l'utente li aveva messi su Drive).
+   Uso, dall'editor di Apps Script: scegli "migraCartelleAnteprima" dal menu delle funzioni in
+   alto ed esegui (▷): nei log (Visualizza → Log, o Ctrl+Cmd+H) si vede quanti file verrebbero
+   spostati e in quali cartelle, senza spostare nulla. Quando il risultato convince, esegui
+   "migraCartelle" per spostarli davvero. */
+function migraCartelleAnteprima() { return migraCartelleEsegui(true); }
+function migraCartelle() { return migraCartelleEsegui(false); }
+function migraCartelleEsegui(dryRun) {
+  var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
+  if (!folderId) { Logger.log('Cartella allegati non configurata: esegui prima setup().'); return; }
+  var root = DriveApp.getFolderById(folderId);
+
+  var clienti = readAll('clienti'), commesse = readAll('commesse'), dipendenti = readAll('dipendenti'),
+    mezzi = readAll('mezzi'), categorie = readAll('categorie'), documenti = readAll('documenti'),
+    riservato = readAll('riservato'), verbali = readAll('verbali'), docAzienda = readAll('docAzienda'),
+    assicurazioni = readAll('assicurazioni'), registri = readAll('registri'), impostazioni = readAll('impostazioni');
+
+  var campiCfg = impostazioni.campi || {};
+  var registriDefs = {}; ((impostazioni.registri || {}).items || []).forEach(function (r) { registriDefs[r.id] = r; });
+
+  var clienteNome = function (id) { var c = clienti[id]; return c ? c.ragioneSociale : ''; };
+  var commessaLabel = function (c) { return (c.codice || '') + ' · ' + clienteNome(c.clienteId); };
+  var nomeD = function (d) { return (d.cognome || '') + ' ' + (d.nome || ''); };
+  var mezzoLabel = function (m) { return m.descrizione + (m.targa ? ' ' + m.targa : ''); };
+  var catPath = function (id) {
+    var c = categorie[id]; if (!c) return '';
+    var p = c.parentId && categorie[c.parentId];
+    return p ? p.nome + ' / ' + c.nome : c.nome;
+  };
+
+  var tasks = [];
+  var add = function (fileOrId, segments) {
+    var id = fileOrId && typeof fileOrId === 'object' ? fileOrId.id : fileOrId;
+    if (!id) return;
+    tasks.push({ fileId: id, segments: segments });
+  };
+
+  Object.keys(commesse).forEach(function (id) {
+    var c = commesse[id], lab = ['Commesse', commessaLabel(c)];
+    (c.sicurezza || []).forEach(function (s) { if (s.file) add(s.file, lab.concat('Sicurezza')); });
+    (c.documentiAmm || []).forEach(function (x) { if (x.file) add(x.file, lab.concat('Documentazione amministrativa')); });
+    (c.fotoSopralluogo || []).forEach(function (f) { add(f, lab.concat('Foto sopralluogo')); });
+    (c.fotoInstallazione || []).forEach(function (f) { add(f, lab.concat('Foto installazione')); });
+    (campiCfg.commesse || []).forEach(function (cf) { if (cf.t === 'file' && c[cf.k]) add(c[cf.k], lab); });
+  });
+
+  Object.keys(dipendenti).forEach(function (id) {
+    var d = dipendenti[id], lab = ['Personale', nomeD(d)];
+    (d.abilitazioni || []).forEach(function (a) { if (a.file) add(a.file, lab.concat('Formazione')); });
+    (d.documenti || []).forEach(function (x) { if (x.file) add(x.file, lab.concat('Documenti personali')); });
+    (campiCfg.dipendenti || []).forEach(function (cf) { if (cf.t === 'file' && d[cf.k]) add(d[cf.k], lab); });
+  });
+
+  Object.keys(mezzi).forEach(function (id) {
+    var m = mezzi[id], lab = ['Mezzi', mezzoLabel(m)];
+    (m.controlli || []).forEach(function (ct) { if (ct.file) add(ct.file, lab.concat('Controlli')); });
+    (campiCfg.mezzi || []).forEach(function (cf) { if (cf.t === 'file' && m[cf.k]) add(m[cf.k], lab); });
+  });
+
+  Object.keys(clienti).forEach(function (id) {
+    var cl = clienti[id];
+    (campiCfg.clienti || []).forEach(function (cf) { if (cf.t === 'file' && cl[cf.k]) add(cl[cf.k], ['Clienti', cl.ragioneSociale]); });
+  });
+
+  var docLabel = function (x) {
+    if (x.commessaId && commesse[x.commessaId]) return ['Commesse', commessaLabel(commesse[x.commessaId]), 'Documenti'];
+    return ['Documentale', catPath(x.categoriaId) || 'Senza categoria'];
+  };
+  Object.keys(documenti).forEach(function (id) { var x = documenti[id]; if (x.file) add(x.file, docLabel(x)); });
+  Object.keys(riservato).forEach(function (id) {
+    var x = riservato[id];
+    if (x.kind === 'doc' && x.file) add(x.file, docLabel(x));
+    else if (x.kind === 'verbale' && x.file) add(x.file, ['Documentale', 'Verbali']);
+  });
+  Object.keys(verbali).forEach(function (id) { var x = verbali[id]; if (x.file) add(x.file, ['Documentale', 'Verbali']); });
+  Object.keys(docAzienda).forEach(function (id) { var x = docAzienda[id]; if (x.file) add(x.file, ['Azienda', 'Documenti aziendali']); });
+  Object.keys(assicurazioni).forEach(function (id) { var x = assicurazioni[id]; if (x.file) add(x.file, ['Azienda', 'Assicurazioni']); });
+  Object.keys(registri).forEach(function (id) {
+    var x = registri[id], def = registriDefs[x.reg]; if (!def) return;
+    (def.campi || []).forEach(function (cf) { if (cf.t === 'file' && x[cf.k]) add(x[cf.k], ['Registri', def.nome]); });
+  });
+
+  var daSpostare = 0, giaOrganizzati = 0, nonTrovati = 0, errori = 0, cartelleUsate = {};
+  tasks.forEach(function (t) {
+    var file;
+    try { file = DriveApp.getFileById(t.fileId); }
+    catch (e) { nonTrovati++; return; }
+    var parents = file.getParents(), inRadice = false;
+    while (parents.hasNext()) { if (parents.next().getId() === root.getId()) { inRadice = true; break; } }
+    if (!inRadice) { giaOrganizzati++; return; }
+    var chiave = t.segments.join(' / ');
+    cartelleUsate[chiave] = (cartelleUsate[chiave] || 0) + 1;
+    if (dryRun) { daSpostare++; return; }
+    try {
+      var dest = ensureFolderPath(root, t.segments);
+      dest.addFile(file);
+      root.removeFile(file);
+      daSpostare++;
+    } catch (e2) { errori++; }
+  });
+
+  Logger.log((dryRun ? '[ANTEPRIMA, nessun file è stato spostato] ' : '[FATTO] ') + 'File ' + (dryRun ? 'da spostare' : 'spostati') + ': ' + daSpostare + ' · già organizzati in precedenza (non toccati): ' + giaOrganizzati + ' · non trovati (eliminati o senza permesso): ' + nonTrovati + (errori ? ' · errori: ' + errori : ''));
+  Logger.log('Cartelle coinvolte:\n' + Object.keys(cartelleUsate).sort().map(function (k) { return '  ' + k + ' (' + cartelleUsate[k] + ')'; }).join('\n'));
+  return { daSpostare: daSpostare, giaOrganizzati: giaOrganizzati, nonTrovati: nonTrovati, errori: errori };
+}
