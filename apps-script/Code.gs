@@ -68,6 +68,7 @@ function handle(body) {
     case 'update': return apiUpdate(body, caller, role);
     case 'delete': return apiDelete(body, caller, role);
     case 'upload': return apiUpload(body, caller, role);
+    case 'deleteFile': return apiDeleteFile(body, caller, role);
     default: return { ok: false, error: 'Azione sconosciuta: ' + body.action };
   }
 }
@@ -184,6 +185,19 @@ function apiUpload(body, caller, role) {
   var file = folder.createFile(blob);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return { ok: true, id: file.getId(), url: file.getUrl(), name: body.filename || file.getName() };
+}
+/* cestina (non elimina per sempre) la copia su Drive di un allegato sostituito o rimosso da una
+   scheda: pulizia di riserva, usata solo quando il caricamento diretto dal browser non è
+   disponibile. Non blocca mai nulla se fallisce (file già cestinato, permessi…): è una pulizia,
+   non un'operazione essenziale. */
+function apiDeleteFile(body, caller, role) {
+  try {
+    var file = DriveApp.getFileById(body.fileId);
+    file.setTrashed(true);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: 'File non trovato o non eliminabile.' };
+  }
 }
 
 /* ---------- storage: Google Sheet come database, una scheda per collezione ---------- */

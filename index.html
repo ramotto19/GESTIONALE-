@@ -198,6 +198,19 @@ async function patch(col, id, part) { try { await serial(col + '/' + id, () => d
 async function remove(col, id) { try { await serial(col + '/' + id, () => db.doc(col + '/' + id).delete()); } catch (e) { toast(errMsg(e), 'err'); throw e; } }
 const newId = (col) => db.collection(col).doc().id;
 async function uploadFile(file, folderPath) { if (!assets) throw new Error('assets'); const r = await assets.upload(file, folderPath); return { id: r.id, name: file.name, url: r.url || '' }; }
+/* elimina (sposta nel cestino) la copia su Drive di un allegato caricato dall'app: usata quando
+   un campo "file" viene sostituito con un nuovo caricamento, un altro link, o rimosso, cosi' la
+   vecchia copia non resta per sempre orfana nella cartella (nessuna scheda la referenzia più).
+   Va in background, senza bloccare il salvataggio: se fallisce (permessi, file già sparito…)
+   non succede nulla di grave, resta solo un file da pulire a mano in futuro. */
+async function deleteDriveFile(id) {
+  if (!id) return;
+  try {
+    const token = await acquireDriveToken();
+    if (token) { await driveFetch(token, 'https://www.googleapis.com/drive/v3/files/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }); return; }
+  } catch (e) { /* si tenta il metodo di riserva */ }
+  try { await api('deleteFile', { fileId: id }); } catch (e2) { /* pulizia non essenziale */ }
+}
 
 /* ---------- rendering ---------- */
 let rq = 0;
@@ -279,7 +292,8 @@ async function submitForm() {
     if (t === 'checkbox') v = !!(el && el.checked);
     else if (t === 'multi') v = [...document.querySelectorAll('#mform .multi[data-k="' + f.k + '"] input:checked')].map((x) => x.value);
     else if (t === 'file') {
-      v = (cfg.values && cfg.values[f.k]) || null;
+      const oldVal = (cfg.values && cfg.values[f.k]) || null;
+      v = oldVal;
       const file = el && el.files && el.files[0], ue = document.getElementById('f_' + f.k + '_url'), lk = ue ? ue.value.trim() : '';
       if (!file && lk) { const su = safeUrl(lk); if (!su) { err.textContent = 'Il link deve iniziare con https://'; if (ue) ue.focus(); return; } v = { url: su, name: (ue && ue.dataset.pickedName) || 'Apri su Drive' }; }
       else if (!file && !lk && v && v.url) v = null;
@@ -287,6 +301,10 @@ async function submitForm() {
         try { btn.disabled = true; btn.textContent = 'Caricamento file in corso…'; v = await uploadFile(file, folderPath()); }
         catch (e) { err.textContent = 'Caricamento del file non riuscito.'; resetBtn(); return; }
       }
+      /* se la copia precedente era stata caricata da noi (ha un id, a differenza di un link
+         scelto con "Sfoglia Drive") e non è più quella attuale, la vecchia copia su Drive non
+         serve più a nessuno: va ripulita, altrimenti resta orfana per sempre nella cartella */
+      if (oldVal && oldVal.id && (!v || v.url !== oldVal.url)) deleteDriveFile(oldVal.id);
     } else if (t === 'filemulti') {
       const files = el && el.files ? Array.from(el.files) : [], pe = document.getElementById('f_' + f.k + '_picked');
       let picked = []; try { picked = pe && pe.value ? JSON.parse(pe.value) : []; } catch (e2) { picked = []; }
