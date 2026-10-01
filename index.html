@@ -960,7 +960,7 @@ A.docCommEdit = (d) => { const x = G('commesse', d.id), i = (x.documentiAmm || [
    disponibile (es. un file scelto su Drive che non è condiviso) resta comunque il link. */
 function fotoCard(c, key, titolo) {
   const foto = (c[key] || []).slice().sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')));
-  const grid = foto.length ? '<div style="display:flex;flex-wrap:wrap;gap:12px">' + foto.map((f) => '<div style="width:150px"><a href="' + esc(f.url || '') + '" target="_blank" rel="noopener" style="display:block;border:1px solid var(--ln2);border-radius:8px;overflow:hidden;aspect-ratio:1;background:var(--hd)">' + (f.id ? '<img src="https://drive.google.com/thumbnail?id=' + esc(f.id) + '&sz=w300" alt="' + esc(f.name || 'foto') + '" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.style.display=\'none\'">' : '') + '</a><div class="small muted" style="margin-top:4px">' + esc(fmtD(f.data)) + (f.note ? ' · ' + esc(f.note) : '') + '</div><button class="btn sm d" style="margin-top:4px" data-a="fotoDel" data-id="' + esc(c.id) + '" data-key="' + key + '" data-x="' + esc(f.id) + '">Elimina</button></div>').join('') + '</div>' : '<div class="empty">Nessuna foto caricata.</div>';
+  const grid = foto.length ? '<div style="display:flex;flex-wrap:wrap;gap:12px">' + foto.map((f) => '<div style="width:150px"><a href="' + esc(f.url || '') + '" target="_blank" rel="noopener" style="display:block;border:1px solid var(--ln2);border-radius:8px;overflow:hidden;aspect-ratio:1;background:var(--hd)">' + (f.id ? '<img src="https://drive.google.com/thumbnail?id=' + esc(f.id) + '&sz=w300" alt="' + esc(f.name || 'foto') + '" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="fotoThumbErr(this)">' : '<div class="small muted" style="display:flex;align-items:center;justify-content:center;height:100%;text-align:center;padding:8px">Apri su Drive</div>') + '</a><div class="small muted" style="margin-top:4px">' + esc(fmtD(f.data)) + (f.note ? ' · ' + esc(f.note) : '') + '</div><button class="btn sm d" style="margin-top:4px" data-a="fotoDel" data-id="' + esc(c.id) + '" data-key="' + key + '" data-x="' + esc(f.id) + '">Elimina</button></div>').join('') + '</div>' : '<div class="empty">Nessuna foto caricata.</div>';
   return card(titolo, grid, '<button class="btn p sm" data-a="fotoAdd" data-id="' + esc(c.id) + '" data-key="' + key + '">+ Aggiungi foto</button>');
 }
 const FOTO_CARD_TITOLI = { fotoSopralluogo: 'Foto sopralluogo', fotoInstallazione: 'Foto installazione' };
@@ -2455,6 +2455,16 @@ function loadPickerApi() {
   });
   return pickerLoadPromise;
 }
+/* quando la miniatura di una foto (fotoCard) non si carica — es. permessi non condivisibili su
+   un Drive condiviso — mostra comunque qualcosa al posto di uno spazio vuoto e invisibile: la
+   foto resta comunque apribile dal link intorno. */
+function fotoThumbErr(img) {
+  const d = document.createElement('div');
+  d.className = 'small muted';
+  d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;text-align:center;padding:8px';
+  d.textContent = 'Apri su Drive';
+  img.replaceWith(d);
+}
 /* Scelta di un file dal computer (input nativo, accanto a "Sfoglia Drive"): svuota l'eventuale
    link Drive già scelto (altrimenti resterebbero impostati insieme, in modo ambiguo) e conferma
    subito, come per "Sfoglia Drive", cosa succederà al salvataggio: qui viene davvero caricata
@@ -2546,7 +2556,16 @@ function driveBrowseMulti(btn) {
     if (input) input.value = JSON.stringify(picked);
     const fileInput = document.getElementById(targetId.replace(/_picked$/, ''));
     if (fileInput) fileInput.value = '';
-    toast('Collegate ' + picked.length + ' foto: al salvataggio non verrà caricata nessuna copia.');
+    /* senza condividerle, l'anteprima (miniatura di Drive) di una foto scelta da "Sfoglia
+       Drive" non si vede: resta visibile solo a chi aveva già accesso al file così com'era
+       prima (spesso solo chi l'ha caricata), non a chiunque apra la scheda nell'app. Impostare
+       qui "chiunque abbia il link" (stesso trattamento già riservato alle foto caricate
+       dall'app) è necessario perché l'anteprima funzioni per tutti; se un file è dentro un
+       Drive condiviso su cui non si hanno i permessi per cambiare la condivisione, si ignora
+       l'errore e si continua (l'anteprima di quella foto resterà assente, il link funziona
+       comunque). */
+    await Promise.all(picked.map((p) => driveSetSharing(token, p.id).catch(() => {})));
+    toast('Collegate ' + picked.length + ' foto: al salvataggio non verrà caricata nessuna copia. Rese visibili a chiunque abbia il link, per mostrarne l’anteprima.');
   })();
 }
 async function uploadDirectToDrive(file, folderPath) {
