@@ -161,10 +161,24 @@ function apiDelete(body, caller, role) {
   deleteDoc(col, id);
   return { ok: true };
 }
+/* risolve (creando se serve) la cartella annidata dentro quella radice che corrisponde a
+   pagina/commessa/sezione, cosi' i documenti caricati da Apps Script finiscono nella stessa
+   struttura di cartelle di quelli caricati direttamente dal browser, invece che tutti insieme
+   in un'unica cartella piatta */
+function ensureFolderPath(rootFolder, segments) {
+  var folder = rootFolder;
+  (segments || []).slice(0, 4).forEach(function (name) {
+    name = String(name || '').trim().slice(0, 100);
+    if (!name) return;
+    var it = folder.getFoldersByName(name);
+    folder = it.hasNext() ? it.next() : folder.createFolder(name);
+  });
+  return folder;
+}
 function apiUpload(body, caller, role) {
   var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
   if (!folderId) return { ok: false, error: 'Cartella allegati non configurata: esegui setup().' };
-  var folder = DriveApp.getFolderById(folderId);
+  var folder = ensureFolderPath(DriveApp.getFolderById(folderId), body.folderPath);
   var bytes = Utilities.base64Decode(body.base64 || '');
   var blob = Utilities.newBlob(bytes, body.mimeType || 'application/octet-stream', body.filename || 'file');
   var file = folder.createFile(blob);

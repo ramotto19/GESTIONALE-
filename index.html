@@ -197,7 +197,7 @@ async function put(col, id, obj) { const o = clone(obj); delete o.id; try { awai
 async function patch(col, id, part) { try { await serial(col + '/' + id, () => db.doc(col + '/' + id).update(clone(part))); } catch (e) { toast(errMsg(e), 'err'); throw e; } }
 async function remove(col, id) { try { await serial(col + '/' + id, () => db.doc(col + '/' + id).delete()); } catch (e) { toast(errMsg(e), 'err'); throw e; } }
 const newId = (col) => db.collection(col).doc().id;
-async function uploadFile(file) { if (!assets) throw new Error('assets'); const r = await assets.upload(file); return { id: r.id, name: file.name, url: r.url || '' }; }
+async function uploadFile(file, folderPath) { if (!assets) throw new Error('assets'); const r = await assets.upload(file, folderPath); return { id: r.id, name: file.name, url: r.url || '' }; }
 
 /* ---------- rendering ---------- */
 let rq = 0;
@@ -268,6 +268,11 @@ async function submitForm() {
   const out = {}, err = $('#ferr'); err.textContent = '';
   const btn = $('#mform button[type=submit]'), btnLabel = (cfg.submit || 'Salva');
   const resetBtn = () => { if (btn) { btn.disabled = false; btn.textContent = btnLabel; } };
+  /* percorso di cartelle su Drive per i file di questo modulo: un array fisso (es. ['Commesse',
+     'ABC123 · Mario Rossi', 'Sicurezza']) oppure una funzione dei valori già raccolti, per i
+     moduli dove la cartella dipende da una scelta fatta nel modulo stesso (es. la categoria nel
+     Documentale). Senza cfg.folder i file finiscono nella cartella radice, come prima. */
+  const folderPath = () => { try { return (typeof cfg.folder === 'function' ? cfg.folder(out) : cfg.folder) || []; } catch (e) { return []; } };
   for (const f of cfg.fields) {
     const t = f.t || 'text', el = document.getElementById('f_' + f.k);
     let v;
@@ -279,7 +284,7 @@ async function submitForm() {
       if (!file && lk) { const su = safeUrl(lk); if (!su) { err.textContent = 'Il link deve iniziare con https://'; if (ue) ue.focus(); return; } v = { url: su, name: (ue && ue.dataset.pickedName) || 'Apri su Drive' }; }
       else if (!file && !lk && v && v.url) v = null;
       if (file) {
-        try { btn.disabled = true; btn.textContent = 'Caricamento file in corso…'; v = await uploadFile(file); }
+        try { btn.disabled = true; btn.textContent = 'Caricamento file in corso…'; v = await uploadFile(file, folderPath()); }
         catch (e) { err.textContent = 'Caricamento del file non riuscito.'; resetBtn(); return; }
       }
     } else if (t === 'filemulti') {
@@ -292,7 +297,8 @@ async function submitForm() {
           btn.disabled = true;
           /* una alla volta, non tutte insieme: con molte foto un invio simultaneo sovraccarica il
              backend (lo stesso motivo per cui "Registro ore" ora carica a piccoli gruppi) */
-          for (let k = 0; k < files.length; k++) { btn.textContent = 'Caricamento foto ' + (k + 1) + '/' + files.length + '…'; v.push(await uploadFile(files[k])); }
+          const fp = folderPath();
+          for (let k = 0; k < files.length; k++) { btn.textContent = 'Caricamento foto ' + (k + 1) + '/' + files.length + '…'; v.push(await uploadFile(files[k], fp)); }
         } catch (e3) { err.textContent = 'Caricamento dei file non riuscito.'; resetBtn(); return; }
       } else v = [];
     } else { v = el ? el.value.trim() : ''; if (t === 'number') v = v === '' ? '' : num(v); }
@@ -315,7 +321,7 @@ function editSub(o) {
      modifica nel frattempo venisse sovrascritta e persa (stesso bug corretto per le checklist
      dell'iter e di cantiere). */
   openForm({
-    title: o.title, fields: o.fields, values: cur, info: o.info, wide: o.wide,
+    title: o.title, fields: o.fields, values: cur, info: o.info, wide: o.wide, folder: o.folder,
     onSave: async (v) => {
       const doc2 = clone(G(o.col, o.id)), arr2 = doc2[o.key] || [];
       let item = Object.assign({}, cur, v);
@@ -591,6 +597,7 @@ const incassatoC = (c) => sum(c.pagamenti || [], incassatoP);
 const previstoC = (c) => sum(c.pagamenti || [], (p) => p.importo);
 const costiC = (c) => sum(c.costi || [], (x) => x.importo);
 const nomeD = (d) => (d ? (d.cognome || '') + ' ' + (d.nome || '') : '');
+const mezzoLabel = (m) => (m ? m.descrizione + (m.targa ? ' ' + m.targa : '') : '');
 const docAzOk = (tipo, at) => D('docAzienda').some((x) => x.tipo === tipo && (!x.dataScadenza || x.dataScadenza >= at));
 const abLabel = (k) => lab(TIPI_AB, k);
 const clienteNome = (id) => { const c = G('clienti', id); return c ? c.ragioneSociale : ''; };
@@ -773,10 +780,11 @@ A.newC = () => {
   openForm({
     title: 'Nuova commessa', wide: true, info: 'L\u2019iter (preventivo, conferma d\u2019ordine, POS, DICO…) e la checklist di cantiere si creano da soli in base alle tipologie scelte.',
     fields: commessaFields(), values: { codice: nextCodice(), stato: 'OFFERTA', aliquotaIva: 22 },
+    folder: (out) => ['Commesse', out.codice || 'Nuova commessa'],
     onSave: async (v) => { const id = newId('commesse'); await put('commesse', id, Object.assign({}, v, { iter: newIter(), fasi: [], sicurezza: [], pagamenti: [], costi: [], creataIl: today() })); go('commessa', id, 'panoramica'); }
   });
 };
-A.editC = (d) => { const c = G('commesse', d.id); openForm({ title: 'Modifica commessa', wide: true, fields: commessaFields(), values: c, onSave: (v) => patch('commesse', c.id, v), onDelete: S.admin ? async () => { await remove('commesse', c.id); go('commesse'); } : null }); };
+A.editC = (d) => { const c = G('commesse', d.id); openForm({ title: 'Modifica commessa', wide: true, fields: commessaFields(), values: c, folder: ['Commesse', commessaLabel(c)], onSave: (v) => patch('commesse', c.id, v), onDelete: S.admin ? async () => { await remove('commesse', c.id); go('commesse'); } : null }); };
 
 /* ---------- scheda commessa ---------- */
 const CTABS = [['panoramica', 'Panoramica'], ['iter', 'Iter'], ['cantiere', 'Cantiere'], ['sicurezza', 'Sicurezza'], ['economia', 'Amministrazione'], ['documenti', 'Documenti'], ['squadre', 'Squadre']];
@@ -918,15 +926,15 @@ function tabSicurezza(c) {
   const t = tbl([{ h: 'Documento', f: (s) => '<b>' + esc(lab(TIPI_SIC, s.tipo)) + '</b>' }, { h: 'Stato', f: (s) => stBadge(STATI_SIC, s.stato) }, { h: 'Emissione', f: (s) => esc(fmtD(s.dataEmissione)) }, { h: 'Scadenza', f: (s) => scadBadge(s.dataScadenza) }, { h: 'File', f: (s) => fileLink(s.file) }, { h: 'Note', f: (s) => esc(s.note) }], c.sicurezza || [], { empty: 'Nessun documento di sicurezza. Aggiungi POS, DVR, DUVRI, notifica preliminare…', row: (s, i) => 'data-a="sicEdit" data-id="' + esc(c.id) + '" data-i="' + i + '"' });
   return card('Documenti di sicurezza della commessa', t, '<button class="btn p sm" data-a="sicNew" data-id="' + esc(c.id) + '">+ Documento</button>');
 }
-A.sicNew = (d) => editSub({ col: 'commesse', id: d.id, key: 'sicurezza', title: 'Documento di sicurezza', fields: sicFields(), defaults: { stato: 'DA_REDIGERE' } });
-A.sicEdit = (d) => editSub({ col: 'commesse', id: d.id, key: 'sicurezza', i: d.i, title: 'Documento di sicurezza', fields: sicFields() });
+A.sicNew = (d) => editSub({ col: 'commesse', id: d.id, key: 'sicurezza', title: 'Documento di sicurezza', fields: sicFields(), defaults: { stato: 'DA_REDIGERE' }, folder: ['Commesse', commessaLabel(G('commesse', d.id)), 'Sicurezza'] });
+A.sicEdit = (d) => editSub({ col: 'commesse', id: d.id, key: 'sicurezza', i: d.i, title: 'Documento di sicurezza', fields: sicFields(), folder: ['Commesse', commessaLabel(G('commesse', d.id)), 'Sicurezza'] });
 
 /* --- amministrazione --- */
 const pagFields = () => [{ k: 'tipo', l: 'Tipo', t: 'select', req: true, half: true, opts: TIPI_PAG }, { k: 'importo', l: 'Importo (€)', t: 'number', req: true, half: true }, { k: 'descrizione', l: 'Descrizione', ph: 'Es. SAL 1 al 30%' }, { k: 'dataScadenza', l: 'Scadenza di pagamento', t: 'date', half: true }, { k: 'numeroFattura', l: 'N. fattura', half: true }];
 const TIPI_DOC_COMM = [['PREVENTIVO', 'Preventivo'], ['CONFERMA_ORDINE', 'Conferma d’ordine'], ['CONTRATTO', 'Contratto'], ['DICO', 'DICO'], ['VALUTAZIONE_ENERGETICA', 'Valutazione energetica'], ['BOLLETTA_CLIENTE', 'Bolletta cliente'], ['SCHEDA_TECNICA', 'Scheda tecnica materiali'], ['ALTRO', 'Altro']];
 const docCommFields = () => [{ k: 'tipo', l: 'Tipo di documento', t: 'select', req: true, opts: TIPI_DOC_COMM }, { k: 'titolo', l: 'Titolo (facoltativo)' }, { k: 'data', l: 'Data documento', t: 'date', half: true }, { k: 'scadenza', l: 'Scadenza (se prevista)', t: 'date', half: true }, { k: 'file', l: 'File', t: 'file' }, { k: 'note', l: 'Note', t: 'textarea' }];
-A.docCommNew = (d) => editSub({ col: 'commesse', id: d.id, key: 'documentiAmm', title: 'Nuovo documento', fields: docCommFields() });
-A.docCommEdit = (d) => { const x = G('commesse', d.id), i = (x.documentiAmm || []).findIndex((a) => a.id === d.x); if (i >= 0) editSub({ col: 'commesse', id: d.id, key: 'documentiAmm', i, title: 'Documento', fields: docCommFields() }); };
+A.docCommNew = (d) => editSub({ col: 'commesse', id: d.id, key: 'documentiAmm', title: 'Nuovo documento', fields: docCommFields(), folder: ['Commesse', commessaLabel(G('commesse', d.id)), 'Documentazione amministrativa'] });
+A.docCommEdit = (d) => { const x = G('commesse', d.id), i = (x.documentiAmm || []).findIndex((a) => a.id === d.x); if (i >= 0) editSub({ col: 'commesse', id: d.id, key: 'documentiAmm', i, title: 'Documento', fields: docCommFields(), folder: ['Commesse', commessaLabel(x), 'Documentazione amministrativa'] }); };
 /* gallerie foto (sopralluogo/installazione): a differenza di "Documentazione" permettono di
    scegliere e caricare più file insieme in un colpo solo (campo "filemulti"), invece di una
    voce alla volta. Ogni foto che ha un id (caricata da noi, o scelta su Drive) mostra
@@ -937,8 +945,9 @@ function fotoCard(c, key, titolo) {
   const grid = foto.length ? '<div style="display:flex;flex-wrap:wrap;gap:12px">' + foto.map((f) => '<div style="width:150px"><a href="' + esc(f.url || '') + '" target="_blank" rel="noopener" style="display:block;border:1px solid var(--ln2);border-radius:8px;overflow:hidden;aspect-ratio:1;background:var(--hd)">' + (f.id ? '<img src="https://drive.google.com/thumbnail?id=' + esc(f.id) + '&sz=w300" alt="' + esc(f.name || 'foto') + '" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.style.display=\'none\'">' : '') + '</a><div class="small muted" style="margin-top:4px">' + esc(fmtD(f.data)) + (f.note ? ' · ' + esc(f.note) : '') + '</div><button class="btn sm d" style="margin-top:4px" data-a="fotoDel" data-id="' + esc(c.id) + '" data-key="' + key + '" data-x="' + esc(f.id) + '">Elimina</button></div>').join('') + '</div>' : '<div class="empty">Nessuna foto caricata.</div>';
   return card(titolo, grid, '<button class="btn p sm" data-a="fotoAdd" data-id="' + esc(c.id) + '" data-key="' + key + '">+ Aggiungi foto</button>');
 }
+const FOTO_CARD_TITOLI = { fotoSopralluogo: 'Foto sopralluogo', fotoInstallazione: 'Foto installazione' };
 A.fotoAdd = (d) => {
-  openForm({ title: 'Aggiungi foto', fields: [{ k: 'foto', l: 'Foto (puoi selezionarne più di una insieme)', t: 'filemulti', req: true }, { k: 'note', l: 'Nota (facoltativa, vale per tutte le foto caricate ora)' }], onSave: async (v) => {
+  openForm({ title: 'Aggiungi foto', fields: [{ k: 'foto', l: 'Foto (puoi selezionarne più di una insieme)', t: 'filemulti', req: true }, { k: 'note', l: 'Nota (facoltativa, vale per tutte le foto caricate ora)' }], folder: ['Commesse', commessaLabel(G('commesse', d.id)), FOTO_CARD_TITOLI[d.key] || 'Foto'], onSave: async (v) => {
     const c = clone(G('commesse', d.id));
     c[d.key] = c[d.key] || [];
     (v.foto || []).forEach((f) => c[d.key].push({ id: f.id, name: f.name, url: f.url, data: today(), note: v.note || '' }));
@@ -1172,8 +1181,8 @@ function vClienti() {
   const t = tbl([{ h: 'Cliente', f: (c) => '<b>' + esc(c.ragioneSociale) + '</b>' }, { h: 'P.IVA', f: (c) => esc(c.piva) }, { h: 'Città', f: (c) => esc(c.citta) }, { h: 'Referente', f: (c) => esc(c.referente) + '<div class="small muted">' + esc([c.telefono, c.email].filter(Boolean).join(' · ')) + '</div>' }, { h: 'Commesse', r: true, f: (c) => D('commesse').filter((x) => x.clienteId === c.id).length }], cs, { empty: 'Nessun cliente. Aggiungi il primo con “Nuovo cliente”.', row: (c) => 'data-a="cliEdit" data-id="' + esc(c.id) + '"' });
   return pageHead('Clienti', 'Anagrafica clienti collegata alle commesse.', '<button class="btn p" data-a="cliNew">Nuovo cliente</button>') + '<div class="fbar"><input id="q" data-in="q" placeholder="Cerca cliente" aria-label="Cerca" value="' + esc(S.q) + '"></div><div class="card">' + t + '</div>';
 }
-A.cliNew = () => openForm({ title: 'Nuovo cliente', fields: clienteFields(), onSave: (v) => put('clienti', newId('clienti'), v) });
-A.cliEdit = (d) => { const c = G('clienti', d.id), n = D('commesse').filter((x) => x.clienteId === c.id).length; openForm({ title: 'Cliente', fields: clienteFields(), values: c, info: n ? n + ' commesse collegate' : '', onSave: (v) => patch('clienti', c.id, v), onDelete: n || !S.admin ? null : () => remove('clienti', c.id) }); };
+A.cliNew = () => openForm({ title: 'Nuovo cliente', fields: clienteFields(), folder: (out) => ['Clienti', out.ragioneSociale || 'Nuovo cliente'], onSave: (v) => put('clienti', newId('clienti'), v) });
+A.cliEdit = (d) => { const c = G('clienti', d.id), n = D('commesse').filter((x) => x.clienteId === c.id).length; openForm({ title: 'Cliente', fields: clienteFields(), values: c, info: n ? n + ' commesse collegate' : '', folder: ['Clienti', c.ragioneSociale], onSave: (v) => patch('clienti', c.id, v), onDelete: n || !S.admin ? null : () => remove('clienti', c.id) }); };
 
 /* ---------- personale ---------- */
 const abInfo = (d) => { let ok = 0, sc = 0, sca = 0; (d.abilitazioni || []).forEach((a) => { if (!a.dataScadenza || a.dataScadenza >= today() && diff(a.dataScadenza, today()) > 30) ok++; else if (a.dataScadenza >= today()) sc++; else sca++; }); return { ok, sc, sca }; };
@@ -1196,7 +1205,7 @@ function vPersonale() {
 }
 A.ptab = (d) => { S.ptab = d.t; queueRender(); };
 let dipFields = () => [{ k: 'nome', l: 'Nome', req: true, half: true }, { k: 'cognome', l: 'Cognome', req: true, half: true }, { k: 'mansione', l: 'Mansione', ph: 'Es. elettricista, idraulico, capocantiere' }, { k: 'telefono', l: 'Telefono', half: true }, { k: 'email', l: 'Email', half: true }, { k: 'attivo', l: 'In forza', t: 'checkbox' }];
-A.dipNew = () => openForm({ title: 'Nuovo dipendente', fields: dipFields(), values: { attivo: true }, onSave: async (v) => { const id = newId('dipendenti'); await put('dipendenti', id, Object.assign({}, v, { abilitazioni: [] })); go('dipendente', id); } });
+A.dipNew = () => openForm({ title: 'Nuovo dipendente', fields: dipFields(), values: { attivo: true }, folder: (out) => ['Personale', ((out.cognome || '') + ' ' + (out.nome || '')).trim() || 'Nuovo dipendente'], onSave: async (v) => { const id = newId('dipendenti'); await put('dipendenti', id, Object.assign({}, v, { abilitazioni: [] })); go('dipendente', id); } });
 const sqFields = () => [{ k: 'nome', l: 'Nome squadra', req: true }, { k: 'capoId', l: 'Capo squadra', t: 'select', opts: D('dipendenti').filter((d) => d.attivo !== false).sort(byStr((x) => x.cognome)).map((d) => [d.id, nomeD(d)]) }, { k: 'membri', l: 'Componenti', t: 'multi', opts: D('dipendenti').filter((d) => d.attivo !== false).sort(byStr((x) => x.cognome)).map((d) => [d.id, nomeD(d)]) }];
 A.sqNew = () => openForm({ title: 'Nuova squadra', fields: sqFields(), onSave: (v) => put('squadre', newId('squadre'), v) });
 A.sqEdit = (d) => { const s = G('squadre', d.id); openForm({ title: 'Squadra', fields: sqFields(), values: s, onSave: (v) => patch('squadre', s.id, v), onDelete: S.admin ? async () => { await remove('squadre', s.id); D('assegnazioni').filter((a) => a.squadraId === s.id).forEach((a) => remove('assegnazioni', a.id)); D('assegnazioniG').filter((a) => a.squadraId === s.id).forEach((a) => remove('assegnazioniG', a.id)); } : null }); };
@@ -1208,15 +1217,15 @@ function vDipendente() {
   const doc = tbl([{ h: 'Documento', f: (x) => '<b>' + esc(x.titolo || lab(TIPI_DOC_DIP, x.tipo)) + '</b><div class="small muted">' + esc(lab(TIPI_DOC_DIP, x.tipo)) + '</div>' }, { h: 'Data', f: (x) => esc(fmtD(x.data)) }, { h: 'Scadenza', f: (x) => x.scadenza ? scadBadge(x.scadenza) : '<span class="muted">Non scade</span>' }, { h: 'File', f: (x) => fileLink(x.file) }], (d.documenti || []).slice().sort((a, b) => String(a.scadenza || '9999').localeCompare(String(b.scadenza || '9999'))), { empty: 'Nessun documento caricato.', row: (x) => 'data-a="docDipEdit" data-id="' + esc(d.id) + '" data-x="' + esc(x.id) + '"' });
   return '<div class="hd"><div><button class="lnk" data-a="go" data-r="personale">← Personale</button><h1 style="margin-top:8px">' + esc(nomeD(d)) + '</h1><p class="sub">' + esc(d.mansione || '') + (squadraDi(d.id) ? ' · ' + esc(squadraDi(d.id)) : '') + '</p></div><div class="row"><button class="btn" data-a="dipEdit" data-id="' + esc(d.id) + '">Modifica</button></div></div>' + card('Formazione e abilitazioni', t, '<button class="btn p sm" data-a="abNew" data-id="' + esc(d.id) + '">+ Aggiungi</button>') + card('Documenti personali', doc, '<button class="btn p sm" data-a="docDipNew" data-id="' + esc(d.id) + '">+ Aggiungi</button>');
 }
-A.dipEdit = (d) => { const x = G('dipendenti', d.id); openForm({ title: 'Dipendente', fields: dipFields(), values: x, onSave: (v) => patch('dipendenti', x.id, v), onDelete: S.admin ? async () => { await remove('dipendenti', x.id); go('personale'); } : null }); };
+A.dipEdit = (d) => { const x = G('dipendenti', d.id); openForm({ title: 'Dipendente', fields: dipFields(), values: x, folder: ['Personale', nomeD(x)], onSave: (v) => patch('dipendenti', x.id, v), onDelete: S.admin ? async () => { await remove('dipendenti', x.id); go('personale'); } : null }); };
 const abFields = () => [{ k: 'tipo', l: 'Corso o abilitazione', t: 'select', req: true, opts: TIPI_AB.map((x) => [x[0], x[1]]) }, { k: 'descrizione', l: 'Dettaglio (ente, livello…)' }, { k: 'dataConseguimento', l: 'Data conseguimento', t: 'date', half: true }, { k: 'dataScadenza', l: 'Scadenza', t: 'date', half: true, hint: 'Se la lasci vuota viene proposta in base alla validità indicativa del corso. Verifica sempre l\u2019attestato.' }, { k: 'file', l: 'Attestato', t: 'file' }];
 const abMap = (it) => { if (!it.dataScadenza && it.dataConseguimento) { const m = (TIPI_AB.find((x) => x[0] === it.tipo) || [])[2]; if (m) it.dataScadenza = addMonths(it.dataConseguimento, m); } return it; };
-A.abNew = (d) => editSub({ col: 'dipendenti', id: d.id, key: 'abilitazioni', title: 'Nuova abilitazione', fields: abFields(), map: abMap });
-A.abEdit = (d) => { const x = G('dipendenti', d.id), i = (x.abilitazioni || []).findIndex((a) => a.id === d.x); if (i >= 0) editSub({ col: 'dipendenti', id: d.id, key: 'abilitazioni', i, title: 'Abilitazione', fields: abFields(), map: abMap }); };
+A.abNew = (d) => editSub({ col: 'dipendenti', id: d.id, key: 'abilitazioni', title: 'Nuova abilitazione', fields: abFields(), map: abMap, folder: ['Personale', nomeD(G('dipendenti', d.id)), 'Formazione'] });
+A.abEdit = (d) => { const x = G('dipendenti', d.id), i = (x.abilitazioni || []).findIndex((a) => a.id === d.x); if (i >= 0) editSub({ col: 'dipendenti', id: d.id, key: 'abilitazioni', i, title: 'Abilitazione', fields: abFields(), map: abMap, folder: ['Personale', nomeD(x), 'Formazione'] }); };
 const TIPI_DOC_DIP = [['CARTA_IDENTITA', 'Carta d’identità'], ['CONTRATTO_LAVORO', 'Contratto di lavoro'], ['UNILAV_LUL', 'UNILAV / LUL'], ['MALATTIA', 'Certificato di malattia o assenza'], ['DPI', 'DPI consegnati'], ['ALTRO', 'Altro']];
 const docDipFields = () => [{ k: 'tipo', l: 'Tipo di documento', t: 'select', req: true, opts: TIPI_DOC_DIP }, { k: 'titolo', l: 'Titolo (facoltativo)' }, { k: 'data', l: 'Data documento', t: 'date', half: true }, { k: 'scadenza', l: 'Scadenza (se prevista)', t: 'date', half: true }, { k: 'file', l: 'File', t: 'file' }, { k: 'note', l: 'Note', t: 'textarea' }];
-A.docDipNew = (d) => editSub({ col: 'dipendenti', id: d.id, key: 'documenti', title: 'Nuovo documento', fields: docDipFields() });
-A.docDipEdit = (d) => { const x = G('dipendenti', d.id), i = (x.documenti || []).findIndex((a) => a.id === d.x); if (i >= 0) editSub({ col: 'dipendenti', id: d.id, key: 'documenti', i, title: 'Documento', fields: docDipFields() }); };
+A.docDipNew = (d) => editSub({ col: 'dipendenti', id: d.id, key: 'documenti', title: 'Nuovo documento', fields: docDipFields(), folder: ['Personale', nomeD(G('dipendenti', d.id)), 'Documenti personali'] });
+A.docDipEdit = (d) => { const x = G('dipendenti', d.id), i = (x.documenti || []).findIndex((a) => a.id === d.x); if (i >= 0) editSub({ col: 'dipendenti', id: d.id, key: 'documenti', i, title: 'Documento', fields: docDipFields(), folder: ['Personale', nomeD(x), 'Documenti personali'] }); };
 
 /* pagina "I miei documenti" del dipendente: stessa formazione + documenti personali che vede
    l'amministratore nella sua scheda, ma di sola lettura (letti dallo snapshot in accessi, dato
@@ -1246,8 +1255,8 @@ function aDocumenti() {
   const t = tbl([{ h: 'Documento', f: (x) => '<b>' + esc(x.titolo || lab(TIPI_DOC_AZ, x.tipo)) + '</b><div class="small muted">' + esc(lab(TIPI_DOC_AZ, x.tipo)) + '</div>' }, { h: 'Ente', f: (x) => esc(x.ente) }, { h: 'Numero', f: (x) => esc(x.numero) }, { h: 'Emissione', f: (x) => esc(fmtD(x.dataEmissione)) }, { h: 'Scadenza', f: (x) => x.dataScadenza ? scadBadge(x.dataScadenza) : '<span class="muted">Non scade</span>' }, { h: 'File', f: (x) => fileLink(x.file) }], D('docAzienda').sort((a, b) => String(a.dataScadenza || '9999').localeCompare(String(b.dataScadenza || '9999'))), { empty: 'Nessun documento. Inserisci DURC, visura camerale, abilitazioni e certificazioni.', row: (x) => 'data-a="daEdit" data-id="' + esc(x.id) + '"' });
   return alert + card('Documenti e abilitazioni dell\u2019impresa', t, '<button class="btn p sm" data-a="daNew">+ Documento</button>');
 }
-A.daNew = () => openForm({ title: 'Documento aziendale', fields: docAzFields(), values: {}, onSave: (v) => put('docAzienda', newId('docAzienda'), docAzMap(v)) });
-A.daEdit = (d) => { const x = G('docAzienda', d.id); openForm({ title: 'Documento aziendale', fields: docAzFields(), values: x, onSave: (v) => patch('docAzienda', x.id, docAzMap(v)), onDelete: () => remove('docAzienda', x.id) }); };
+A.daNew = () => openForm({ title: 'Documento aziendale', fields: docAzFields(), values: {}, folder: ['Azienda', 'Documenti aziendali'], onSave: (v) => put('docAzienda', newId('docAzienda'), docAzMap(v)) });
+A.daEdit = (d) => { const x = G('docAzienda', d.id); openForm({ title: 'Documento aziendale', fields: docAzFields(), values: x, folder: ['Azienda', 'Documenti aziendali'], onSave: (v) => patch('docAzienda', x.id, docAzMap(v)), onDelete: () => remove('docAzienda', x.id) }); };
 
 const assFields = () => [{ k: 'tipo', l: 'Tipo di polizza', t: 'select', req: true, opts: TIPI_ASS }, { k: 'compagnia', l: 'Compagnia', req: true, half: true }, { k: 'numeroPolizza', l: 'N. polizza', half: true }, { k: 'massimale', l: 'Massimale (€)', t: 'number', half: true }, { k: 'premio', l: 'Premio annuo (€)', t: 'number', half: true }, { k: 'dataInizio', l: 'Decorrenza', t: 'date', half: true }, { k: 'dataScadenza', l: 'Scadenza', t: 'date', req: true, half: true }, { k: 'mezzoId', l: 'Mezzo (se polizza di un mezzo)', t: 'select', half: true, opts: D('mezzi').map((m) => [m.id, m.descrizione + (m.targa ? ' ' + m.targa : '')]) }, { k: 'commessaId', l: 'Commessa (se polizza CAR)', t: 'select', half: true, opts: D('commesse').map((c) => [c.id, commessaLabel(c)]) }, { k: 'file', l: 'File', t: 'file' }, { k: 'note', l: 'Note', t: 'textarea' }];
 function aAssicurazioni() {
@@ -1255,8 +1264,8 @@ function aAssicurazioni() {
   const t = tbl([{ h: 'Polizza', f: (x) => '<b>' + esc(lab(TIPI_ASS, x.tipo)) + '</b><div class="small muted">' + esc(x.compagnia) + (x.numeroPolizza ? ' · ' + esc(x.numeroPolizza) : '') + '</div>' }, { h: 'Riferimento', f: rif }, { h: 'Massimale', r: true, f: (x) => x.massimale ? eur(x.massimale) : '' }, { h: 'Premio', r: true, f: (x) => x.premio ? eur(x.premio) : '' }, { h: 'Scadenza', f: (x) => scadBadge(x.dataScadenza) }, { h: 'File', f: (x) => fileLink(x.file) }], D('assicurazioni').sort((a, b) => String(a.dataScadenza).localeCompare(String(b.dataScadenza))), { empty: 'Nessuna polizza registrata.', row: (x) => 'data-a="assEdit" data-id="' + esc(x.id) + '"' });
   return card('Assicurazioni', t, '<button class="btn p sm" data-a="assNew">+ Polizza</button>');
 }
-A.assNew = () => openForm({ title: 'Polizza', wide: true, fields: assFields(), values: {}, onSave: (v) => put('assicurazioni', newId('assicurazioni'), v) });
-A.assEdit = (d) => { const x = G('assicurazioni', d.id); openForm({ title: 'Polizza', wide: true, fields: assFields(), values: x, onSave: (v) => patch('assicurazioni', x.id, v), onDelete: () => remove('assicurazioni', x.id) }); };
+A.assNew = () => openForm({ title: 'Polizza', wide: true, fields: assFields(), values: {}, folder: ['Azienda', 'Assicurazioni'], onSave: (v) => put('assicurazioni', newId('assicurazioni'), v) });
+A.assEdit = (d) => { const x = G('assicurazioni', d.id); openForm({ title: 'Polizza', wide: true, fields: assFields(), values: x, folder: ['Azienda', 'Assicurazioni'], onSave: (v) => patch('assicurazioni', x.id, v), onDelete: () => remove('assicurazioni', x.id) }); };
 
 let mezzoFields = () => [{ k: 'tipo', l: 'Tipo', t: 'select', req: true, half: true, opts: TIPI_MEZZO }, { k: 'descrizione', l: 'Descrizione', req: true, half: true, ph: 'Es. Furgone Iveco Daily' }, { k: 'targa', l: 'Targa / matricola', half: true }, { k: 'assegnatoId', l: 'Assegnato a', t: 'select', half: true, opts: D('dipendenti').sort(byStr((x) => x.cognome)).map((d) => [d.id, nomeD(d)]) }, { k: 'revisioneScadenza', l: 'Prossima revisione', t: 'date', half: true }, { k: 'bolloScadenza', l: 'Scadenza bollo', t: 'date', half: true, hint: 'Tassa di possesso del mezzo' }, { k: 'attivo', l: 'In servizio', t: 'checkbox' }];
 function aMezzi() {
@@ -1271,8 +1280,8 @@ function aMezzi() {
   const tAttr = tbl([{ h: 'Attrezzatura', f: nomeM }, { h: 'Assegnato a', f: assegn }, { h: 'Ultimo controllo', f: ultCtl }], attrezzi, Object.assign({ empty: 'Nessuna attrezzatura.' }, rowOpts));
   return '<div class="grid g2">' + card('Mezzi', tMezzi, '<button class="btn p sm" data-a="mezNew">+ Mezzo</button>') + card('Attrezzature', tAttr, '<button class="btn p sm" data-a="attrNew">+ Attrezzatura</button>') + '</div>';
 }
-A.mezNew = () => openForm({ title: 'Nuovo mezzo', fields: mezzoFields(), values: { attivo: true }, onSave: async (v) => { const id = newId('mezzi'); await put('mezzi', id, Object.assign({}, v, { controlli: [] })); go('mezzo', id); } });
-A.attrNew = () => openForm({ title: 'Nuova attrezzatura', fields: mezzoFields(), values: { attivo: true, tipo: 'ATTREZZATURA' }, onSave: async (v) => { const id = newId('mezzi'); await put('mezzi', id, Object.assign({}, v, { controlli: [] })); go('mezzo', id); } });
+A.mezNew = () => openForm({ title: 'Nuovo mezzo', fields: mezzoFields(), values: { attivo: true }, folder: (out) => ['Mezzi', out.descrizione || 'Nuovo mezzo'], onSave: async (v) => { const id = newId('mezzi'); await put('mezzi', id, Object.assign({}, v, { controlli: [] })); go('mezzo', id); } });
+A.attrNew = () => openForm({ title: 'Nuova attrezzatura', fields: mezzoFields(), values: { attivo: true, tipo: 'ATTREZZATURA' }, folder: (out) => ['Mezzi', out.descrizione || 'Nuova attrezzatura'], onSave: async (v) => { const id = newId('mezzi'); await put('mezzi', id, Object.assign({}, v, { controlli: [] })); go('mezzo', id); } });
 function vMezzo() {
   const m = G('mezzi', S.id);
   if (!m) return '<div class="empty">Mezzo non trovato. <button class="lnk" data-a="go" data-r="azienda">Torna ad Azienda</button></div>';
@@ -1282,10 +1291,10 @@ function vMezzo() {
   return '<div class="hd"><div><button class="lnk" data-a="go" data-r="azienda">← Azienda</button><h1 style="margin-top:8px">' + esc(m.descrizione) + '</h1><p class="sub">' + esc(lab(TIPI_MEZZO, m.tipo)) + (m.targa ? ' · ' + esc(m.targa) : '') + '</p></div><div class="row"><button class="btn" data-a="mezEdit" data-id="' + esc(m.id) + '">Modifica</button></div></div><div class="stack">' +
     card('Scadenze del mezzo', '<div class="blk"><div style="flex:1"><b>Revisione</b></div>' + scadBadge(m.revisioneScadenza) + '</div><div class="blk"><div style="flex:1"><b>Bollo</b><div class="small muted">Tassa di possesso</div></div>' + scadBadge(m.bolloScadenza) + '</div>') + card('Controlli, revisioni e verbali', ctl, '<button class="btn p sm" data-a="ctlNew" data-id="' + esc(m.id) + '">+ Controllo</button>') + card('Polizze del mezzo', polH) + '</div>';
 }
-A.mezEdit = (d) => { const m = G('mezzi', d.id); openForm({ title: 'Mezzo', fields: mezzoFields(), values: m, onSave: (v) => patch('mezzi', m.id, v), onDelete: S.admin ? async () => { await remove('mezzi', m.id); go('azienda'); } : null }); };
+A.mezEdit = (d) => { const m = G('mezzi', d.id); openForm({ title: 'Mezzo', fields: mezzoFields(), values: m, folder: ['Mezzi', mezzoLabel(m)], onSave: (v) => patch('mezzi', m.id, v), onDelete: S.admin ? async () => { await remove('mezzi', m.id); go('azienda'); } : null }); };
 const ctlFields = () => [{ k: 'tipo', l: 'Tipo di controllo', t: 'select', req: true, opts: TIPI_CONTROLLO }, { k: 'data', l: 'Data', t: 'date', req: true, half: true }, { k: 'esito', l: 'Esito', t: 'select', half: true, opts: ESITI }, { k: 'eseguitoDa', l: 'Eseguito da (tecnico o ente)' }, { k: 'prossimaScadenza', l: 'Prossima scadenza', t: 'date', hint: 'Finisce automaticamente nello scadenzario.' }, { k: 'file', l: 'Verbale', t: 'file' }, { k: 'note', l: 'Note', t: 'textarea' }];
-A.ctlNew = (d) => editSub({ col: 'mezzi', id: d.id, key: 'controlli', title: 'Nuovo controllo', fields: ctlFields(), defaults: { data: today(), esito: 'CONFORME' } });
-A.ctlEdit = (d) => { const m = G('mezzi', d.id), i = (m.controlli || []).findIndex((c) => c.id === d.x); if (i >= 0) editSub({ col: 'mezzi', id: d.id, key: 'controlli', i, title: 'Controllo', fields: ctlFields() }); };
+A.ctlNew = (d) => editSub({ col: 'mezzi', id: d.id, key: 'controlli', title: 'Nuovo controllo', fields: ctlFields(), defaults: { data: today(), esito: 'CONFORME' }, folder: ['Mezzi', mezzoLabel(G('mezzi', d.id)), 'Controlli'] });
+A.ctlEdit = (d) => { const m = G('mezzi', d.id), i = (m.controlli || []).findIndex((c) => c.id === d.x); if (i >= 0) editSub({ col: 'mezzi', id: d.id, key: 'controlli', i, title: 'Controllo', fields: ctlFields(), folder: ['Mezzi', mezzoLabel(m), 'Controlli'] }); };
 
 /* --- tipologie di lavoro --- */
 const fasiToText = (f) => (f || []).map((x) => x.nome + ': ' + (x.voci || []).join('; ')).join('\n');
@@ -1335,14 +1344,17 @@ function saveDoc(oldCol, oldId, v, base) {
   if (oldId && oldCol === col) return patch(col, oldId, obj);
   return put(col, newId(col), obj).then(() => (oldId ? remove(oldCol, oldId) : null));
 }
+/* cartella Drive del documento: se caricato dalla scheda di una commessa, va dentro quella
+   commessa; altrimenti (dal Documentale generale) dentro la categoria scelta nel modulo */
+const docFolderPath = (commessaId) => (out) => commessaId ? ['Commesse', commessaLabel(G('commesse', commessaId)), 'Documenti'] : ['Documentale', catPath(out.categoriaId) || 'Senza categoria'];
 function docNewForm(commessaId) {
   if (!catOpts().length) { toast('Le categorie documentali non sono ancora configurate.', 'err'); return; }
-  openForm({ title: 'Carica documento', wide: true, fields: docFields(), values: { data: today(), accesso: 'RESPONSABILI' }, onSave: (v) => saveDoc(null, null, v, commessaId ? { commessaId } : {}) });
+  openForm({ title: 'Carica documento', wide: true, fields: docFields(), values: { data: today(), accesso: 'RESPONSABILI' }, folder: docFolderPath(commessaId), onSave: (v) => saveDoc(null, null, v, commessaId ? { commessaId } : {}) });
 }
 A.docNew = (d) => docNewForm(d && d.commessa);
 A.docEdit = (d) => {
   const col = d.col || 'documenti', x = G(col, d.id); if (!x) return;
-  openForm({ title: 'Documento', wide: true, fields: docFields(), values: x, onSave: (v) => saveDoc(col, x.id, v, {}), onDelete: () => remove(col, x.id) });
+  openForm({ title: 'Documento', wide: true, fields: docFields(), values: x, folder: docFolderPath(x.commessaId), onSave: (v) => saveDoc(col, x.id, v, {}), onDelete: () => remove(col, x.id) });
 };
 
 /* --- verbali --- */
@@ -1359,8 +1371,8 @@ function saveVerbale(oldCol, old, v) {
   if (old && oldCol === col) return patch(col, old.id, obj);
   return put(col, newId(col), obj).then(() => (old ? remove(oldCol, old.id) : null));
 }
-A.verbNew = () => openForm({ title: 'Nuovo verbale', wide: true, fields: verbFields(), values: { data: today(), tipo: 'RIUNIONE_PERIODICA' }, onSave: (v) => saveVerbale(null, null, v) });
-A.verbEditF = (d) => { const col = d.col, x = G(col, d.id); openForm({ title: 'Verbale', wide: true, fields: verbFields(), values: Object.assign({}, x, { partecipantiTxt: (x.partecipanti || []).join('\n'), azioniTxt: azioniToText(x.azioni) }), onSave: (v) => saveVerbale(col, x, v), onDelete: () => remove(col, x.id) }); };
+A.verbNew = () => openForm({ title: 'Nuovo verbale', wide: true, fields: verbFields(), values: { data: today(), tipo: 'RIUNIONE_PERIODICA' }, folder: ['Documentale', 'Verbali'], onSave: (v) => saveVerbale(null, null, v) });
+A.verbEditF = (d) => { const col = d.col, x = G(col, d.id); openForm({ title: 'Verbale', wide: true, fields: verbFields(), values: Object.assign({}, x, { partecipantiTxt: (x.partecipanti || []).join('\n'), azioniTxt: azioniToText(x.azioni) }), folder: ['Documentale', 'Verbali'], onSave: (v) => saveVerbale(col, x, v), onDelete: () => remove(col, x.id) }); };
 A.verbOpen = (d) => {
   const col = d.col, x = G(col, d.id); if (!x) return;
   const az = (x.azioni || []).length ? (x.azioni || []).map((a, i) => '<div class="blk"><div style="flex:1"><b>' + esc(a.descrizione) + '</b><div class="small muted">' + esc(a.responsabile || 'Nessun responsabile') + (a.scadenza ? ' · entro ' + esc(fmtD(a.scadenza)) : '') + '</div></div><select data-c="azStato" data-id="' + esc(x.id) + '" data-col="' + col + '" data-i="' + i + '" aria-label="Stato dell\u2019azione" style="width:auto">' + STATI_AZIONE.map((s) => '<option value="' + s[0] + '"' + (a.stato === s[0] ? ' selected' : '') + '>' + esc(s[1]) + '</option>').join('') + '</select></div>').join('') : '<div class="muted">Nessuna azione.</div>';
@@ -1881,8 +1893,8 @@ function vReg() {
   else body = '<div class="fbar"><input id="q" data-in="q" placeholder="Cerca" aria-label="Cerca" value="' + esc(S.q) + '"></div><section class="card">' + tbl(cs.slice(0, 7).map((c) => ({ h: c.l, f: (x) => (c.scad && c.t === 'data' && x[c.k] ? scadBadge(x[c.k]) : valCampo(c, x[c.k]) || '<span class="muted">—</span>') })), rows, { empty: 'Nessuna riga. Usa «+ Nuovo» per inserirne una.', row: (x) => 'data-a="regEdit" data-id="' + esc(x.id) + '"' }) + '</section>';
   return pageHead(def.nome, cs.length > 7 ? 'Nella tabella si vedono i primi 7 campi; apri una riga per vederli tutti.' : '', act) + body;
 }
-A.regNew = (d) => { const def = regDef(d.r); if (!def) return; openForm({ title: 'Nuova riga · ' + def.nome, wide: true, fields: campiToFields(def.campi), values: {}, onSave: (v) => put('registri', newId('registri'), Object.assign({ reg: def.id, creatoIl: today() }, v)) }); };
-A.regEdit = (d) => { const x = G('registri', d.id), def = x && regDef(x.reg); if (!def) return; openForm({ title: def.nome, wide: true, fields: campiToFields(def.campi), values: x, onSave: (v) => patch('registri', x.id, v), onDelete: S.admin ? () => remove('registri', x.id) : null }); };
+A.regNew = (d) => { const def = regDef(d.r); if (!def) return; openForm({ title: 'Nuova riga · ' + def.nome, wide: true, fields: campiToFields(def.campi), values: {}, folder: ['Registri', def.nome], onSave: (v) => put('registri', newId('registri'), Object.assign({ reg: def.id, creatoIl: today() }, v)) }); };
+A.regEdit = (d) => { const x = G('registri', d.id), def = x && regDef(x.reg); if (!def) return; openForm({ title: def.nome, wide: true, fields: campiToFields(def.campi), values: x, folder: ['Registri', def.nome], onSave: (v) => patch('registri', x.id, v), onDelete: S.admin ? () => remove('registri', x.id) : null }); };
 A.regCsv = async (d) => {
   const def = regDef(d.r); if (!def || !dl) return;
   const cs = def.campi || [], rows = [cs.map((c) => c.l)].concat(D('registri').filter((x) => x.reg === def.id).map((x) => cs.map((c) => valTesto(c, x[c.k]))));
@@ -1982,7 +1994,7 @@ function edIter() {
   const n = DEFAULT_ITER.length, b = (a, i, t, cls, dis) => '<button class="btn sm' + (cls || '') + '" data-a="' + a + '" data-i="' + i + '"' + (dis ? ' disabled' : '') + '>' + t + '</button>';
   const t = tbl([{ h: '#', f: (s, i) => String(i + 1) }, { h: 'Passaggio', f: (s) => '<b>' + esc(s.nome) + '</b>' + (s.bloccante ? ' ' + bd('Bloccante', 'dark') : '') + (ITER_FISSI.includes(s.codice) ? ' ' + bd('Regola di sistema', 'grey') : '') }, { h: 'Checklist', f: (s) => (s.voci || []).length + ' voci' }, { h: '', r: true, f: (s, i) => '<span class="row end">' + b('itUp', i, '↑', '', !i) + b('itDown', i, '↓', '', i === n - 1) + b('itEdit', i, 'Modifica') + (ITER_FISSI.includes(s.codice) ? '' : b('itDel', i, 'Elimina', ' d')) + '</span>' }], DEFAULT_ITER, { empty: 'Nessun passaggio.' });
   const sicRows = SIC_KEYS.map(([k, obj]) => ({ k: k, nome: obj.nome, voci: obj.voci }));
-  const sic = tbl([{ h: 'Checklist di sicurezza', f: (s) => '<b>' + esc(s.nome) + '</b>' }, { h: 'Voci', r: true, f: (s) => (s.voci || []).length }], sicRows, { empty: 'Nessuna.', row: (s) => 'data-a="sicEdit" data-k="' + esc(s.k) + '"' });
+  const sic = tbl([{ h: 'Checklist di sicurezza', f: (s) => '<b>' + esc(s.nome) + '</b>' }, { h: 'Voci', r: true, f: (s) => (s.voci || []).length }], sicRows, { empty: 'Nessuna.', row: (s) => 'data-a="sicTplEdit" data-k="' + esc(s.k) + '"' });
   return card('Iter delle nuove commesse', '<p class="muted small" style="margin:0 0 10px">Il modello vale per le commesse che crei da ora: quelle già create mantengono il loro iter e si modificano dalla loro scheda. I passaggi «di sistema» hanno regole fisse (conferma d\u2019ordine per il planning e per il cantiere, DICO per la fattura di saldo): si possono rinominare e cambiare ma non eliminare.</p>' + t, '<button class="btn sm" data-a="itReset">Ripristina modello iniziale</button><button class="btn p sm" data-a="itNew">+ Passaggio</button>') +
     card('Checklist di sicurezza per ruolo', '<p class="muted small" style="margin:0 0 10px">Non fanno parte dell\u2019iter ordinario di una nuova commessa: si aggiungono a mano, una o più di una, dalla scheda Iter di ogni singola commessa con «+ Aggiungi passaggio» — l\u00ec scegli quale ruolo (impresa esecutrice, affidataria, subappaltatrice o Direzione Lavori) ha quella specifica commessa. Tocca una riga per modificarne nome e voci.</p>' + sic);
 }
@@ -2006,7 +2018,7 @@ A.itUp = (d) => itMove(d, -1);
 A.itDown = (d) => itMove(d, 1);
 A.itReset = async () => { if (!(await confirmBox('Ripristinare il modello iniziale dell\u2019iter? Le commesse già create non cambiano.', 'Ripristina'))) return; try { await remove('impostazioni', 'iter'); } catch (e) { /* già segnalato */ } };
 const saveSicurezza = (obj) => put('impostazioni', 'sicurezza', obj);
-A.sicEdit = (d) => {
+A.sicTplEdit = (d) => {
   const entry = SIC_KEYS.find((x) => x[0] === d.k); if (!entry) return;
   const cur = entry[1];
   openForm({
@@ -2355,6 +2367,39 @@ async function driveEnsureFolder(token) {
   const c = await created.json();
   return c.id;
 }
+async function driveEnsureChildFolder(token, parentId, name) {
+  const q = "name='" + name.replace(/'/g, "\\'") + "' and '" + parentId + "' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false";
+  const res = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id)&spaces=drive');
+  const data = await res.json();
+  if (data.files && data.files[0]) return data.files[0].id;
+  const created = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?fields=id', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] })
+  });
+  const c = await created.json();
+  return c.id;
+}
+/* risolve (creando se serve) la cartella annidata dentro "Gestionale Impianti - Allegati" che
+   corrisponde a pagina/commessa/sezione (es. ['Commesse', 'ABC123 · Mario Rossi', 'Sicurezza']):
+   così i documenti non finiscono più tutti mescolati in un'unica cartella piatta. Le cartelle
+   già risolte in questa sessione restano in cache, per non rifare le stesse chiamate ad ogni
+   caricamento (e per non lasciare una cache "rotta" se una chiamata fallisce, l'entry viene
+   tolta e il prossimo caricamento riprova). */
+const driveFolderCache = new Map();
+async function driveEnsureFolderPath(token, segments) {
+  const clean = (segments || []).map((s) => String(s || '').trim().slice(0, 100)).filter(Boolean).slice(0, 4);
+  const cacheKey = clean.join('/');
+  if (driveFolderCache.has(cacheKey)) {
+    try { return await driveFolderCache.get(cacheKey); } catch (e) { driveFolderCache.delete(cacheKey); }
+  }
+  const p = (async () => {
+    let id = await driveEnsureFolder(token);
+    for (const seg of clean) id = await driveEnsureChildFolder(token, id, seg);
+    return id;
+  })();
+  driveFolderCache.set(cacheKey, p);
+  try { return await p; } catch (e) { driveFolderCache.delete(cacheKey); throw e; }
+}
 async function driveUploadDirect(token, folderId, file) {
   const boundary = 'gi-' + uid();
   const metadata = { name: file.name, parents: [folderId] };
@@ -2481,10 +2526,10 @@ function driveBrowseMulti(btn) {
     toast('Collegate ' + picked.length + ' foto: al salvataggio non verrà caricata nessuna copia.');
   })();
 }
-async function uploadDirectToDrive(file) {
+async function uploadDirectToDrive(file, folderPath) {
   const token = await acquireDriveToken();
   if (!token) return null;
-  const folderId = await driveEnsureFolder(token);
+  const folderId = (folderPath && folderPath.length) ? await driveEnsureFolderPath(token, folderPath) : await driveEnsureFolder(token);
   const uploaded = await driveUploadDirect(token, folderId, file);
   if (!uploaded || !uploaded.id) return null;
   await driveSetSharing(token, uploaded.id);
@@ -2492,13 +2537,13 @@ async function uploadDirectToDrive(file) {
 }
 /* caricamento via Apps Script: più lento (passa dal backend) ma sempre disponibile,
    usato quando l'accesso diretto a Drive non è (ancora, o più) autorizzato */
-function uploadViaAppsScript(file) {
+function uploadViaAppsScript(file, folderPath) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async () => {
       try {
         const base64 = String(reader.result).split(',')[1] || '';
-        const r = await api('upload', { filename: file.name, mimeType: file.type || 'application/octet-stream', base64: base64 });
+        const r = await api('upload', { filename: file.name, mimeType: file.type || 'application/octet-stream', base64: base64, folderPath: folderPath || [] });
         resolve({ id: r.id, name: file.name, url: r.url || '' });
       } catch (e) { reject(e); }
     };
@@ -2508,12 +2553,12 @@ function uploadViaAppsScript(file) {
 }
 
 assets = {
-  upload: async (file) => {
+  upload: async (file, folderPath) => {
     try {
-      const direct = await uploadDirectToDrive(file);
+      const direct = await uploadDirectToDrive(file, folderPath);
       if (direct) return direct;
     } catch (e) { clearSavedDriveToken(); /* si passa al metodo di riserva */ }
-    return uploadViaAppsScript(file);
+    return uploadViaAppsScript(file, folderPath);
   }
 };
 
