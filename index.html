@@ -206,7 +206,12 @@ async function uploadFile(file, folderPath) { if (!assets) throw new Error('asse
 async function deleteDriveFile(id) {
   if (!id) return;
   try {
-    const token = await acquireDriveToken();
+    /* solo il token già in cache, MAI una richiesta interattiva: questa pulizia parte da sola
+       in sottofondo dopo il salvataggio di un modulo, non da un click diretto dell'utente — se
+       si chiedesse qui un nuovo consenso a Google, capiterebbe di vedersi comparire la
+       schermata di autorizzazione senza un motivo visibile legato a quello che si sta facendo.
+       Se non c'è un token pronto si passa dritti al metodo di riserva via Apps Script. */
+    const token = driveTokenMem || loadSavedDriveToken();
     if (token) { await driveFetch(token, 'https://www.googleapis.com/drive/v3/files/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }); return; }
   } catch (e) { /* si tenta il metodo di riserva */ }
   try { await api('deleteFile', { fileId: id }); } catch (e2) { /* pulizia non essenziale */ }
@@ -2332,37 +2337,54 @@ function loadSavedDriveToken() {
     return t.accessToken;
   } catch (e) { return null; }
 }
-function saveDriveToken(accessToken) {
+/* la durata del token è quella che Google restituisce davvero (resp.expires_in, in secondi,
+   di solito un'ora) invece di un'ora fissa indovinata: un valore fisso più lungo di quello
+   vero avrebbe fatto considerare "ancora valido" un token già scaduto da Google, con
+   conseguente errore e nuova richiesta interattiva evitabile. Tolti 60 secondi di margine
+   per non rischiare di usarlo proprio sul filo della scadenza. */
+function saveDriveToken(accessToken, expiresInSec) {
   driveTokenMem = accessToken;
-  try { localStorage.setItem(DRIVE_TOKEN_KEY, JSON.stringify({ accessToken: accessToken, expiresAt: Date.now() + 50 * 60 * 1000 })); } catch (e) { /* ignora */ }
+  const ttlMs = (Number(expiresInSec) > 0 ? Number(expiresInSec) * 1000 : 50 * 60 * 1000) - 60 * 1000;
+  try { localStorage.setItem(DRIVE_TOKEN_KEY, JSON.stringify({ accessToken: accessToken, expiresAt: Date.now() + Math.max(ttlMs, 60 * 1000) })); } catch (e) { /* ignora */ }
 }
 function clearSavedDriveToken() {
   driveTokenMem = null;
   try { localStorage.removeItem(DRIVE_TOKEN_KEY); } catch (e) { /* ignora */ }
 }
+/* richiesta di token già in corso: se arriva un'altra richiesta nel frattempo (es. due campi
+   "Sfoglia Drive" cliccati quasi insieme) si mette in coda dietro quella già partita invece di
+   sovrascriverne il callback, altrimenti la prima richiesta non si sblocca mai più. */
+let driveTokenRequest = null;
 /* interactive=false: prova a ottenere un token senza mostrare nulla all'utente (silenzioso,
-   usa il consenso già dato in precedenza). interactive=true: mostra la schermata di
-   autorizzazione di Google, solo se non c'è già un consenso valido riutilizzabile. */
+   usa il consenso già dato in precedenza). interactive=true: lo chiede comunque a Google, ma
+   SENZA forzare la schermata di consenso completa (prompt vuoto, non 'consent'): se l'utente
+   ha già autorizzato l'app in questo browser, Google restituisce un nuovo token senza mostrare
+   nulla; la schermata compare solo se serve davvero (prima volta, o consenso revocato). Prima
+   veniva forzata sempre, quindi ogni ora, su ogni dispositivo, l'app chiedeva di nuovo
+   l'autorizzazione anche quando non ce n'era bisogno. */
 function getDriveToken(interactive) {
-  return new Promise((resolve) => {
-    const cached = driveTokenMem || loadSavedDriveToken();
-    if (cached && !interactive) { resolve(cached); return; }
-    if (!window.google || !google.accounts || !google.accounts.oauth2 || !CONFIG.CLIENT_ID) { resolve(null); return; }
-    if (!driveTokenClient) {
-      driveTokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CONFIG.CLIENT_ID,
-        scope: DRIVE_SCOPE,
-        callback: () => {} // sovrascritto ad ogni richiesta, vedi sotto
-      });
-    }
+  const cached = driveTokenMem || loadSavedDriveToken();
+  if (cached && !interactive) return Promise.resolve(cached);
+  if (!window.google || !google.accounts || !google.accounts.oauth2 || !CONFIG.CLIENT_ID) return Promise.resolve(null);
+  if (driveTokenRequest) return driveTokenRequest;
+  if (!driveTokenClient) {
+    driveTokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CONFIG.CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: () => {} // sovrascritto ad ogni richiesta, vedi sotto
+    });
+  }
+  driveTokenRequest = new Promise((resolve) => {
     driveTokenClient.callback = (resp) => {
-      if (resp && resp.access_token) { saveDriveToken(resp.access_token); resolve(resp.access_token); }
+      driveTokenRequest = null;
+      if (resp && resp.access_token) { saveDriveToken(resp.access_token, resp.expires_in); resolve(resp.access_token); }
       else resolve(null);
     };
-    driveTokenClient.error_callback = () => resolve(null);
-    try { driveTokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' }); }
-    catch (e) { resolve(null); }
+    driveTokenClient.error_callback = () => { driveTokenRequest = null; resolve(null); };
+    try { driveTokenClient.requestAccessToken({ prompt: '' }); }
+    catch (e) { driveTokenRequest = null; resolve(null); }
   });
+  return driveTokenRequest;
 }
 /* Se c'è già un token salvato (valido) lo riusa all'istante, senza nessuna chiamata di rete.
    Altrimenti richiede subito l'autorizzazione con popup (senza passare prima da un tentativo
@@ -2375,7 +2397,7 @@ async function acquireDriveToken() {
 }
 async function driveFetch(token, url, init) {
   const res = await fetch(url, Object.assign({}, init, { headers: Object.assign({ Authorization: 'Bearer ' + token }, (init && init.headers) || {}) }));
-  if (!res.ok) throw new Error('drive ' + res.status);
+  if (!res.ok) { const err = new Error('drive ' + res.status); err.status = res.status; throw err; }
   return res;
 }
 async function driveEnsureFolder(token) {
@@ -2599,7 +2621,13 @@ assets = {
     try {
       const direct = await uploadDirectToDrive(file, folderPath);
       if (direct) return direct;
-    } catch (e) { clearSavedDriveToken(); /* si passa al metodo di riserva */ }
+    } catch (e) {
+      /* si svuota il token salvato solo se l'errore è davvero di autorizzazione (401/403): un
+         errore diverso (rete, 429, 500 momentaneo…) non significa che il token non vada più
+         bene, e buttarlo via comunque costringeva a richiedere di nuovo l'accesso a Google alla
+         prossima occasione anche quando non serviva. */
+      if (e && (e.status === 401 || e.status === 403)) clearSavedDriveToken();
+    }
     return uploadViaAppsScript(file, folderPath);
   }
 };
@@ -2695,8 +2723,17 @@ async function onGoogleCredential(resp) {
     /* la sessione è già avviata: questo è solo un rinnovo silenzioso del token (richiesto
        periodicamente da boot(), vedi sotto) prima che scada, non un nuovo accesso — non deve
        toccare in alcun modo la pagina che l'utente sta guardando */
+    const tokenPrecedente = ID_TOKEN;
     ID_TOKEN = resp.credential;
-    try { await whoami(true); saveToken(ID_TOKEN); lastRefreshOk = Date.now(); } catch (e) { /* se fallisce ci si riprova al prossimo rinnovo */ }
+    try { await whoami(true); saveToken(ID_TOKEN); lastRefreshOk = Date.now(); }
+    catch (e) {
+      /* il nuovo token non è stato accettato dal server (es. Google ha scelto in automatico un
+         account diverso da quello con cui si era entrati): si tiene quello precedente, che
+         funzionava ancora, invece di lasciare la sessione con un token sicuramente rifiutato
+         finché non arriva il prossimo tentativo di rinnovo — altrimenti ogni chiamata da qui in
+         poi avrebbe dato errore, con l'effetto di sembrare disconnessi all'improvviso */
+      ID_TOKEN = tokenPrecedente;
+    }
     return;
   }
   ID_TOKEN = resp.credential;
