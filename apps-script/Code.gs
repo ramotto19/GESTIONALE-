@@ -509,3 +509,35 @@ function trovaFileOrfani() {
   Logger.log('File trovati nelle cartelle "Allegati": ' + trovati.length + ' · non più collegati a nessuna scheda (orfani): ' + orfani.length + ' (circa ' + totKB + ' KB) · elenco scritto nel foglio "FileOrfani" del Google Sheet dei dati. Nessun file è stato eliminato: controllali con calma prima di cancellarli a mano da Drive.');
   return { trovati: trovati.length, orfani: orfani.length };
 }
+
+/* ---------- una tantum: rende visibili a chiunque abbia il link le foto già collegate con
+   "Sfoglia Drive" ---------- */
+/* Prima della correzione del 2026-10-01, le foto di sopralluogo/installazione collegate con
+   "Sfoglia Drive" (non caricate come copia) restavano condivise solo con chi aveva già accesso
+   al file: per questo non si vedeva l'anteprima nella scheda della commessa. Questa funzione
+   scorre tutte le commesse e, per ogni foto nelle due gallerie, imposta la condivisione
+   "chiunque abbia il link" (sola lettura) — lo stesso trattamento che l'app applica da sola
+   alle nuove foto da ora in poi. Non sposta né elimina nulla, cambia solo chi può vederle.
+   Se una foto è dentro un Drive condiviso su cui questo account non ha i permessi per
+   cambiare la condivisione, viene saltata senza bloccare le altre.
+   Uso: scegli "condividiFotoGiaCollegate" dal menu delle funzioni in alto ed esegui (▷), poi
+   guarda il risultato nei log. */
+function condividiFotoGiaCollegate() {
+  var commesse = readAll('commesse');
+  var fatte = 0, saltate = 0, totale = 0;
+  Object.keys(commesse).forEach(function (id) {
+    var c = commesse[id];
+    ['fotoSopralluogo', 'fotoInstallazione'].forEach(function (key) {
+      (c[key] || []).forEach(function (f) {
+        if (!f || !f.id) return;
+        totale++;
+        try {
+          DriveApp.getFileById(f.id).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          fatte++;
+        } catch (e) { saltate++; }
+      });
+    });
+  });
+  Logger.log('Foto trovate nelle gallerie delle commesse: ' + totale + ' · rese visibili con il link: ' + fatte + (saltate ? ' · saltate (permessi non modificabili, o file non più esistente): ' + saltate : ''));
+  return { totale: totale, fatte: fatte, saltate: saltate };
+}
