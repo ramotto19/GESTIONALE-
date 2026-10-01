@@ -326,27 +326,13 @@ function todayStr() {
    alto ed esegui (▷): nei log (Visualizza → Log, o Ctrl+Cmd+H) si vede quanti file verrebbero
    spostati e in quali cartelle, senza spostare nulla. Quando il risultato convince, esegui
    "migraCartelle" per spostarli davvero. */
-function migraCartelleAnteprima() { return migraCartelleEsegui(true); }
-function migraCartelle() { return migraCartelleEsegui(false); }
-function migraCartelleEsegui(dryRun) {
-  var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
-  if (!folderId) { Logger.log('Cartella allegati non configurata: esegui prima setup().'); return; }
-  var root = DriveApp.getFolderById(folderId);
-
-  /* a causa di un bug corretto il 2026-10-01 (un trattino diverso nel nome tra index.html e
-     Code.gs), il caricamento diretto dal browser creava una SECONDA cartella "Allegati" invece
-     di usare quella giusta (quella in "root", collegata a FOLDER_ID): i file finiti per errore
-     in quella seconda cartella vanno comunque trovati e spostati. Si cercano qui tutte le
-     cartelle di primo livello con uno dei due nomi (trattino normale o trattino lungo), diverse
-     da "root", e si trattano come sorgenti aggiuntive da cui spostare i file. */
-  var radiciExtra = [];
-  ['Gestionale Impianti — Allegati', 'Gestionale Impianti - Allegati'].forEach(function (nome) {
-    var it = DriveApp.getFoldersByName(nome);
-    while (it.hasNext()) { var f = it.next(); if (f.getId() !== root.getId()) radiciExtra.push(f); }
-  });
-  var radici = [root].concat(radiciExtra);
-  if (radiciExtra.length) Logger.log('Trovate ' + radiciExtra.length + ' cartella/e "Allegati" in più oltre a quella principale: i loro file verranno spostati nella struttura dentro "' + root.getName() + '" e poi resteranno vuote (puoi eliminarle a mano da Drive).');
-
+/* legge tutte le collezioni e restituisce, per ogni allegato ancora collegato a una scheda
+   (campo "file" singolo, gallerie foto, campi personalizzati di tipo documento, righe dei
+   registri...), il suo id su Drive e il percorso di cartelle che dovrebbe avere. Usata sia da
+   migraCartelleEsegui (per sapere dove spostare) sia da trovaFileOrfani (per sapere quali id
+   sono ancora referenziati, e quindi NON sono orfani): tenerla in un unico punto evita che le
+   due funzioni, nel tempo, finiscano per "vedere" elenchi diversi di allegati. */
+function raccogliRiferimentiFile() {
   var clienti = readAll('clienti'), commesse = readAll('commesse'), dipendenti = readAll('dipendenti'),
     mezzi = readAll('mezzi'), categorie = readAll('categorie'), documenti = readAll('documenti'),
     riservato = readAll('riservato'), verbali = readAll('verbali'), docAzienda = readAll('docAzienda'),
@@ -417,6 +403,33 @@ function migraCartelleEsegui(dryRun) {
     (def.campi || []).forEach(function (cf) { if (cf.t === 'file' && x[cf.k]) add(x[cf.k], ['Registri', def.nome]); });
   });
 
+  return tasks;
+}
+
+/* trova tutte le cartelle "Allegati" (quella principale collegata a FOLDER_ID, più eventuali
+   doppioni creati dal bug del trattino corretto il 2026-10-01): usata sia dalla migrazione sia
+   dalla ricerca dei file orfani. */
+function trovaRadiciAllegati(root) {
+  var extra = [];
+  ['Gestionale Impianti — Allegati', 'Gestionale Impianti - Allegati'].forEach(function (nome) {
+    var it = DriveApp.getFoldersByName(nome);
+    while (it.hasNext()) { var f = it.next(); if (f.getId() !== root.getId()) extra.push(f); }
+  });
+  return [root].concat(extra);
+}
+
+function migraCartelleAnteprima() { return migraCartelleEsegui(true); }
+function migraCartelle() { return migraCartelleEsegui(false); }
+function migraCartelleEsegui(dryRun) {
+  var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
+  if (!folderId) { Logger.log('Cartella allegati non configurata: esegui prima setup().'); return; }
+  var root = DriveApp.getFolderById(folderId);
+
+  var radici = trovaRadiciAllegati(root);
+  if (radici.length > 1) Logger.log('Trovate ' + (radici.length - 1) + ' cartella/e "Allegati" in più oltre a quella principale: i loro file verranno spostati nella struttura dentro "' + root.getName() + '" e poi resteranno vuote (puoi eliminarle a mano da Drive).');
+
+  var tasks = raccogliRiferimentiFile();
+
   var daSpostare = 0, nonInRadice = 0, nonTrovati = 0, errori = 0, cartelleUsate = {};
   tasks.forEach(function (t) {
     var file;
@@ -443,4 +456,56 @@ function migraCartelleEsegui(dryRun) {
   Logger.log((dryRun ? '[ANTEPRIMA, nessun file è stato spostato] ' : '[FATTO] ') + 'File ' + (dryRun ? 'da spostare' : 'spostati') + ': ' + daSpostare + ' · non dentro a nessuna cartella "Allegati" (già organizzati in precedenza, oppure link a file altrove su Drive — non toccati): ' + nonInRadice + ' · non trovati (eliminati o senza permesso): ' + nonTrovati + (errori ? ' · errori: ' + errori : ''));
   Logger.log('Cartelle coinvolte:\n' + Object.keys(cartelleUsate).sort().map(function (k) { return '  ' + k + ' (' + cartelleUsate[k] + ')'; }).join('\n'));
   return { daSpostare: daSpostare, nonInRadice: nonInRadice, nonTrovati: nonTrovati, errori: errori };
+}
+
+/* ---------- trova (senza eliminare nulla) i file rimasti nelle cartelle "Allegati" che non
+   sono più collegati a nessuna scheda ---------- */
+/* Succedeva soprattutto con le sostituzioni fatte prima della correzione del 2026-10-01 (quando
+   si sostituiva un allegato, la copia vecchia restava per sempre su Drive senza che nessuna
+   scheda la referenziasse più). Questa funzione NON cancella nulla: scorre tutte le cartelle
+   "Allegati" (quella principale e eventuali doppioni) e tutte le loro sottocartelle, confronta
+   ogni file trovato con l'elenco di quelli ancora referenziati nei dati, e scrive l'elenco di
+   quelli "orfani" (fisicamente su Drive ma non più collegati a nessuna scheda) in un nuovo
+   foglio chiamato "FileOrfani" dentro lo stesso Google Sheet dei dati dell'app — con nome,
+   cartella, link diretto e dimensione di ciascuno — cosi' li puoi controllare con calma, uno per
+   uno, prima di decidere se eliminarli (da Drive, a mano: dal link nel foglio).
+   Uso: dal menu delle funzioni in alto nell'editor scegli "trovaFileOrfani" ed esegui (▷), poi
+   apri il Google Sheet dei dati (quello creato da setup(), non questo editor) e guarda il foglio
+   "FileOrfani". */
+function trovaFileOrfani() {
+  var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
+  if (!folderId) { Logger.log('Cartella allegati non configurata: esegui prima setup().'); return; }
+  var root = DriveApp.getFolderById(folderId);
+  var radici = trovaRadiciAllegati(root);
+
+  var trovati = [];
+  var scorri = function (folder, path) {
+    var files = folder.getFiles();
+    while (files.hasNext()) {
+      var f = files.next();
+      trovati.push({ id: f.getId(), name: f.getName(), url: f.getUrl(), path: path || '(cartella radice)', size: f.getSize(), date: f.getLastUpdated() });
+    }
+    var subs = folder.getFolders();
+    while (subs.hasNext()) {
+      var sf = subs.next();
+      scorri(sf, path ? path + ' / ' + sf.getName() : sf.getName());
+    }
+  };
+  radici.forEach(function (r) { scorri(r, r.getName()); });
+
+  var referenziati = {};
+  raccogliRiferimentiFile().forEach(function (t) { referenziati[t.fileId] = true; });
+
+  var orfani = trovati.filter(function (x) { return !referenziati[x.id]; });
+
+  var sh = ss().getSheetByName('FileOrfani');
+  if (sh) sh.clear(); else sh = ss().insertSheet('FileOrfani');
+  sh.appendRow(['Nome file', 'Cartella', 'Link', 'Dimensione (KB)', 'Ultima modifica']);
+  orfani.forEach(function (o) { sh.appendRow([o.name, o.path, o.url, Math.round(o.size / 1024), o.date]); });
+  sh.setFrozenRows(1);
+  if (orfani.length) sh.autoResizeColumns(1, 5);
+
+  var totKB = Math.round(orfani.reduce(function (s, o) { return s + o.size; }, 0) / 1024);
+  Logger.log('File trovati nelle cartelle "Allegati": ' + trovati.length + ' · non più collegati a nessuna scheda (orfani): ' + orfani.length + ' (circa ' + totKB + ' KB) · elenco scritto nel foglio "FileOrfani" del Google Sheet dei dati. Nessun file è stato eliminato: controllali con calma prima di cancellarli a mano da Drive.');
+  return { trovati: trovati.length, orfani: orfani.length };
 }
