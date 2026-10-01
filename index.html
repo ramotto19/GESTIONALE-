@@ -2298,7 +2298,12 @@ db = {
 /* ---------- caricamento diretto su Google Drive (più veloce del passaggio da Apps Script) ---------- */
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_TOKEN_KEY = 'gestionale-impianti:drive-token';
-const DRIVE_FOLDER_NAME = 'Gestionale Impianti - Allegati';
+/* deve essere IDENTICO (trattino compreso) al nome creato da setup() in Code.gs: un trattino
+   diverso (es. "-" invece di "—") fa sì che Google Drive lo consideri un nome diverso, e il
+   caricamento diretto dal browser finiva così per crearsi una SECONDA cartella invece di usare
+   quella già impostata lato Apps Script (bug corretto il 2026-10-01: chi ha già due cartelle
+   "Allegati" può unirle a mano, spostando il contenuto di quella in più dentro l'altra). */
+const DRIVE_FOLDER_NAME = 'Gestionale Impianti — Allegati';
 let driveTokenClient = null, driveTokenMem = null;
 
 function loadSavedDriveToken() {

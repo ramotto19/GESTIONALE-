@@ -319,6 +319,20 @@ function migraCartelleEsegui(dryRun) {
   if (!folderId) { Logger.log('Cartella allegati non configurata: esegui prima setup().'); return; }
   var root = DriveApp.getFolderById(folderId);
 
+  /* a causa di un bug corretto il 2026-10-01 (un trattino diverso nel nome tra index.html e
+     Code.gs), il caricamento diretto dal browser creava una SECONDA cartella "Allegati" invece
+     di usare quella giusta (quella in "root", collegata a FOLDER_ID): i file finiti per errore
+     in quella seconda cartella vanno comunque trovati e spostati. Si cercano qui tutte le
+     cartelle di primo livello con uno dei due nomi (trattino normale o trattino lungo), diverse
+     da "root", e si trattano come sorgenti aggiuntive da cui spostare i file. */
+  var radiciExtra = [];
+  ['Gestionale Impianti — Allegati', 'Gestionale Impianti - Allegati'].forEach(function (nome) {
+    var it = DriveApp.getFoldersByName(nome);
+    while (it.hasNext()) { var f = it.next(); if (f.getId() !== root.getId()) radiciExtra.push(f); }
+  });
+  var radici = [root].concat(radiciExtra);
+  if (radiciExtra.length) Logger.log('Trovate ' + radiciExtra.length + ' cartella/e "Allegati" in più oltre a quella principale: i loro file verranno spostati nella struttura dentro "' + root.getName() + '" e poi resteranno vuote (puoi eliminarle a mano da Drive).');
+
   var clienti = readAll('clienti'), commesse = readAll('commesse'), dipendenti = readAll('dipendenti'),
     mezzi = readAll('mezzi'), categorie = readAll('categorie'), documenti = readAll('documenti'),
     riservato = readAll('riservato'), verbali = readAll('verbali'), docAzienda = readAll('docAzienda'),
@@ -389,26 +403,30 @@ function migraCartelleEsegui(dryRun) {
     (def.campi || []).forEach(function (cf) { if (cf.t === 'file' && x[cf.k]) add(x[cf.k], ['Registri', def.nome]); });
   });
 
-  var daSpostare = 0, giaOrganizzati = 0, nonTrovati = 0, errori = 0, cartelleUsate = {};
+  var daSpostare = 0, nonInRadice = 0, nonTrovati = 0, errori = 0, cartelleUsate = {};
   tasks.forEach(function (t) {
     var file;
     try { file = DriveApp.getFileById(t.fileId); }
     catch (e) { nonTrovati++; return; }
-    var parents = file.getParents(), inRadice = false;
-    while (parents.hasNext()) { if (parents.next().getId() === root.getId()) { inRadice = true; break; } }
-    if (!inRadice) { giaOrganizzati++; return; }
+    var parents = file.getParents(), radiceTrovata = null;
+    while (parents.hasNext()) {
+      var p = parents.next();
+      for (var i = 0; i < radici.length; i++) { if (radici[i].getId() === p.getId()) { radiceTrovata = radici[i]; break; } }
+      if (radiceTrovata) break;
+    }
+    if (!radiceTrovata) { nonInRadice++; return; }
     var chiave = t.segments.join(' / ');
     cartelleUsate[chiave] = (cartelleUsate[chiave] || 0) + 1;
     if (dryRun) { daSpostare++; return; }
     try {
       var dest = ensureFolderPath(root, t.segments);
       dest.addFile(file);
-      root.removeFile(file);
+      radiceTrovata.removeFile(file);
       daSpostare++;
     } catch (e2) { errori++; }
   });
 
-  Logger.log((dryRun ? '[ANTEPRIMA, nessun file è stato spostato] ' : '[FATTO] ') + 'File ' + (dryRun ? 'da spostare' : 'spostati') + ': ' + daSpostare + ' · già organizzati in precedenza (non toccati): ' + giaOrganizzati + ' · non trovati (eliminati o senza permesso): ' + nonTrovati + (errori ? ' · errori: ' + errori : ''));
+  Logger.log((dryRun ? '[ANTEPRIMA, nessun file è stato spostato] ' : '[FATTO] ') + 'File ' + (dryRun ? 'da spostare' : 'spostati') + ': ' + daSpostare + ' · non dentro a nessuna cartella "Allegati" (già organizzati in precedenza, oppure link a file altrove su Drive — non toccati): ' + nonInRadice + ' · non trovati (eliminati o senza permesso): ' + nonTrovati + (errori ? ' · errori: ' + errori : ''));
   Logger.log('Cartelle coinvolte:\n' + Object.keys(cartelleUsate).sort().map(function (k) { return '  ' + k + ' (' + cartelleUsate[k] + ')'; }).join('\n'));
-  return { daSpostare: daSpostare, giaOrganizzati: giaOrganizzati, nonTrovati: nonTrovati, errori: errori };
+  return { daSpostare: daSpostare, nonInRadice: nonInRadice, nonTrovati: nonTrovati, errori: errori };
 }
