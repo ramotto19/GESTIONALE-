@@ -1122,21 +1122,38 @@ C.planSel = (d, v) => {
 };
 A.planSave = async (d) => {
   const cid = $('#pc').value; if (!cid) return;
-  const c = G('commesse', cid), sq = G('squadre', d.s), r = verifica(c, sq, d.w), ov = $('#pov');
-  if (r.bl.length && !(ov && ov.checked)) { toast('Assegnazione bloccata: risolvi i punti indicati.', 'err'); return; }
+  const c = G('commesse', cid), sq = G('squadre', d.s), ov = $('#pov');
   const n = Math.max(1, Math.min(26, parseInt($('#pn').value, 10) || 1)), note = $('#pnote').value.trim();
+  const settimane = Array.from({ length: n }, (_, i) => addDays(d.w, 7 * i));
+  /* il controllo di DURC e abilitazioni/certificazioni dipende dalla data (possono scadere
+     proprio durante il periodo assegnato): va rifatto per OGNI settimana, non solo sulla prima
+     — altrimenti assegnare più settimane insieme poteva coprirne una dove in realtà manca un
+     documento richiesto, senza nessun avviso. Le settimane bloccate vengono saltate (a meno
+     che l'amministratore non spunti "Assegna comunque", che allora vale per tutte); quelle con
+     solo un'attenzione non bloccante vengono comunque salvate, come già per una singola
+     settimana. */
+  const saltate = [];
+  const daSalvare = settimane.filter((w) => {
+    if (ov && ov.checked) return true;
+    const r = verifica(c, sq, w);
+    if (r.bl.length) { saltate.push(w); return false; }
+    return true;
+  });
+  if (!daSalvare.length) { toast('Assegnazione bloccata: risolvi i punti indicati.', 'err'); return; }
   const btn = $('#psave'), btnLabel = btn ? btn.textContent : 'Assegna';
   /* una settimana alla volta, in sequenza, ci metteva un'eternità per assegnazioni di più
      settimane insieme (un giro completo di andata e ritorno al backend per OGNI settimana,
      una dopo l'altra: con "Per quante settimane" a 8 o più si sentiva parecchio). A piccoli
      gruppi in parallelo invece di una alla volta, come già per il caricamento delle ore. */
-  const BATCH = 4, settimane = Array.from({ length: n }, (_, i) => addDays(d.w, 7 * i));
+  const BATCH = 4;
   try {
     if (btn) { btn.disabled = true; btn.textContent = 'Assegnazione…'; }
-    for (let i = 0; i < settimane.length; i += BATCH) {
-      await Promise.all(settimane.slice(i, i + BATCH).map((w) => put('assegnazioni', d.s + '_' + w, { squadraId: d.s, commessaId: cid, settimana: w, note })));
+    for (let i = 0; i < daSalvare.length; i += BATCH) {
+      await Promise.all(daSalvare.slice(i, i + BATCH).map((w) => put('assegnazioni', d.s + '_' + w, { squadraId: d.s, commessaId: cid, settimana: w, note })));
     }
-    closeModal(); toast('Assegnazione salvata.');
+    closeModal();
+    if (saltate.length) toast('Assegnate ' + daSalvare.length + ' settimane su ' + n + '. Saltate per DURC o abilitazioni mancanti/scadute: ' + saltate.slice(0, 3).map(fmtShort).join(', ') + (saltate.length > 3 ? '…' : '') + '.', 'err');
+    else toast('Assegnazione salvata.');
   } catch (e) { if (btn) { btn.disabled = false; btn.textContent = btnLabel; } /* già segnalato */ }
 };
 A.planDel = async (d) => { try { await remove('assegnazioni', d.s + '_' + d.w); closeModal(); } catch (e) { /* già segnalato */ } };
