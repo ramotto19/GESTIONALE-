@@ -859,10 +859,15 @@ C.iterStato = async (d, v) => {
   /* quando la Conferma d'ordine viene segnata Fatta, la commessa è a tutti gli effetti vinta:
      se lo Stato è ancora "Offerta" (il valore proposto alla creazione) lo si porta da solo ad
      "Acquisita", altrimenti restava un campo separato facile da dimenticare — e una commessa
-     ancora in Offerta non compare nel Planning né nelle altre liste delle commesse attive. */
-  if (s.codice === 'CONFERMA_ORDINE' && v === 'COMPLETATO' && c.stato === 'OFFERTA') { c.stato = 'ACQUISITA'; toast('Stato della commessa aggiornato automaticamente ad Acquisita.'); }
+     ancora in Offerta non compare nel Planning né nelle altre liste delle commesse attive.
+     Lo Stato finisce nel salvataggio solo quando viene DAVVERO cambiato qui: mandarlo indietro
+     sempre (anche quando resta uguale) rischiava di sovrascrivere, con un valore ormai vecchio
+     letto dalla cache locale, un cambiamento di Stato fatto nel frattempo da un'altra scheda o
+     dispositivo (es. da "Modifica commessa"). */
+  const parte = { iter: c.iter };
+  if (s.codice === 'CONFERMA_ORDINE' && v === 'COMPLETATO' && c.stato === 'OFFERTA') { c.stato = 'ACQUISITA'; parte.stato = c.stato; toast('Stato della commessa aggiornato automaticamente ad Acquisita.'); }
   applyLocalWrite('commesse', c.id, c);
-  await patch('commesse', c.id, { iter: c.iter, stato: c.stato });
+  await patch('commesse', c.id, parte);
 };
 C.iterVoce = async (d, v, el) => {
   const c = clone(G('commesse', d.id)), s = c.iter[+d.i], x = s.voci[+d.j];
@@ -872,12 +877,15 @@ C.iterVoce = async (d, v, el) => {
   x.done = el.checked;
   const all = s.voci.length && s.voci.every((y) => y.done), any = s.voci.some((y) => y.done);
   if (all && s.stato !== 'NON_APPLICABILE') s.stato = 'COMPLETATO'; else if (!all && s.stato === 'COMPLETATO') s.stato = 'IN_CORSO'; else if (any && s.stato === 'DA_FARE') s.stato = 'IN_CORSO';
-  /* stesso automatismo di C.iterStato: qui il passaggio si completa spuntando l'ultima voce
-     della checklist, non cambiando il menu a tendina — è il modo più comune, va coperto anche
-     qui perché la commessa non resti bloccata in Offerta senza che nessuno se ne accorga. */
-  if (s.codice === 'CONFERMA_ORDINE' && s.stato === 'COMPLETATO' && c.stato === 'OFFERTA') { c.stato = 'ACQUISITA'; toast('Stato della commessa aggiornato automaticamente ad Acquisita.'); }
+  /* stesso automatismo di C.iterStato (e stessa cautela: lo Stato finisce nel salvataggio solo
+     se viene davvero cambiato qui, vedi commento in C.iterStato): qui il passaggio si completa
+     spuntando l'ultima voce della checklist, non cambiando il menu a tendina — è il modo più
+     comune, va coperto anche qui perché la commessa non resti bloccata in Offerta senza che
+     nessuno se ne accorga. */
+  const parte = { iter: c.iter };
+  if (s.codice === 'CONFERMA_ORDINE' && s.stato === 'COMPLETATO' && c.stato === 'OFFERTA') { c.stato = 'ACQUISITA'; parte.stato = c.stato; toast('Stato della commessa aggiornato automaticamente ad Acquisita.'); }
   applyLocalWrite('commesse', c.id, c);
-  await patch('commesse', c.id, { iter: c.iter, stato: c.stato });
+  await patch('commesse', c.id, parte);
 };
 A.iterEdit = (d) => { const c = G('commesse', d.id), s = c.iter[+d.i]; openForm({ title: s.nome, values: s, fields: [{ k: 'responsabile', l: 'Responsabile', half: true }, { k: 'dataPrevista', l: 'Data prevista', t: 'date', half: true }, { k: 'note', l: 'Note', t: 'textarea' }, { k: 'bloccante', l: 'Passaggio bloccante', t: 'checkbox' }], onSave: async (v) => { const n = clone(c.iter); Object.assign(n[+d.i], v); applyLocalWrite('commesse', c.id, Object.assign(clone(c), { iter: n })); await patch('commesse', c.id, { iter: n }); } }); };
 A.iterVoceAdd = (d) => { openForm({ title: 'Nuova voce di checklist', fields: [{ k: 't', l: 'Voce', req: true }], onSave: async (v) => { const c = clone(G('commesse', d.id)); const n = c.iter; n[+d.i].voci.push({ t: v.t, done: false }); if (n[+d.i].stato === 'COMPLETATO') n[+d.i].stato = 'IN_CORSO'; applyLocalWrite('commesse', c.id, c); await patch('commesse', c.id, { iter: n }); } }); };
@@ -2243,10 +2251,19 @@ function dispatchCollection(col) {
 /* ogni scrittura locale (es. spostare un passaggio con le frecce) incrementa writeSeq: se un
    giro di polling già in corso finisce DOPO che l'utente ha appena salvato qualcosa, la sua
    risposta è ormai vecchia e non deve sovrascrivere quel salvataggio appena fatto (altrimenti
-   il cambiamento sembra "funzionare male": si vede per un attimo e poi torna indietro). */
+   il cambiamento sembra "funzionare male": si vede per un attimo e poi torna indietro). Lo
+   stesso contatore, ma per singolo documento (writeSeqDoc), risolve lo stesso problema quando a
+   essere "superata" non è una risposta di polling ma la risposta del backend a un salvataggio
+   precedente sullo STESSO documento: spuntando due voci di una checklist una dopo l'altra in
+   rapida successione, la conferma del server per la prima spunta può arrivare dopo che la
+   seconda è già stata applicata in locale, e senza questo controllo la sovrascriverebbe
+   facendola sembrare "non salvata" (stesso bug, dalla stessa causa, corretto altre volte per
+   l'iter in passato — qui si risolve alla radice per qualunque documento). */
 let writeSeq = 0;
+const writeSeqDoc = {};
 function applyLocalWrite(col, id, doc) {
   writeSeq++;
+  writeSeqDoc[col + '/' + id] = writeSeq;
   if (!pollCache) pollCache = {};
   if (!pollCache[col]) pollCache[col] = {};
   if (doc == null) delete pollCache[col][id]; else pollCache[col][id] = doc;
@@ -2335,9 +2352,16 @@ db = {
     const col = parts[0], id = parts.length >= 4 ? parts[1] + '::' + parts[3] : parts[1];
     return {
       get: async () => { const r = await api('get', { col: col, id: id }); return { exists: !!r.found, data: () => r.doc }; },
-      set: async (obj) => { await api('set', { col: col, id: id, data: obj }); applyLocalWrite(col, id, obj); },
-      update: async (part) => { const r = await api('update', { col: col, id: id, data: part }); applyLocalWrite(col, id, r.doc); },
-      delete: async () => { await api('delete', { col: col, id: id }); applyLocalWrite(col, id, null); },
+      /* seq catturato PRIMA della chiamata di rete: include già l'eventuale scrittura
+         ottimistica in locale appena fatta da chi ha chiamato questa funzione (così si parte
+         già allineati), e se nel frattempo arriva una scrittura locale più recente sullo STESSO
+         documento (es. un secondo click mentre il primo salvataggio è ancora in corso), la
+         risposta di questa chiamata è ormai superata e non va applicata: altrimenti
+         sovrascriverebbe silenziosamente il cambiamento più recente, facendolo sembrare "non
+         salvato". */
+      set: async (obj) => { const seq = writeSeqDoc[col + '/' + id]; await api('set', { col: col, id: id, data: obj }); if (writeSeqDoc[col + '/' + id] === seq) applyLocalWrite(col, id, obj); },
+      update: async (part) => { const seq = writeSeqDoc[col + '/' + id]; const r = await api('update', { col: col, id: id, data: part }); if (writeSeqDoc[col + '/' + id] === seq) applyLocalWrite(col, id, r.doc); },
+      delete: async () => { const seq = writeSeqDoc[col + '/' + id]; await api('delete', { col: col, id: id }); if (writeSeqDoc[col + '/' + id] === seq) applyLocalWrite(col, id, null); },
       onSnapshot: (cb, errCb) => {
         let stopped = false, last = null;
         (async function loop() {
