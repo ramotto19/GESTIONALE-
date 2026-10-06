@@ -406,7 +406,7 @@ const ESITI = [['CONFORME', 'Conforme', 'green'], ['CONFORME_CON_RILIEVI', 'Conf
 const TIPI_VERBALE = [['RIUNIONE_PERIODICA', 'Riunione periodica'], ['SOSTENIBILITA', 'Sostenibilità'], ['RAPPORTO_DIPENDENTE', 'Rapporto con dipendente (riservato)']];
 const STATI_AZIONE = [['APERTA', 'Aperta', 'grey'], ['IN_CORSO', 'In corso', 'amber'], ['CHIUSA', 'Chiusa', 'green']];
 const ACCESSI = [['TUTTI', 'Tutti', 'grey'], ['RESPONSABILI', 'Responsabili', 'grey'], ['AMMINISTRAZIONE', 'Amministrazione', 'grey'], ['RISERVATO', 'Riservato', 'dark']];
-const TIPI_SCAD = [['APPUNTAMENTO', 'Appuntamento', 'dark'], ['FORMAZIONE', 'Formazione', 'blue'], ['AZIENDA', 'Documenti azienda', 'purple'], ['ASSICURAZIONE', 'Assicurazioni', 'teal'], ['INCASSO', 'Incassi', 'green'], ['SICUREZZA', 'Sicurezza cantiere', 'amber'], ['MEZZO', 'Mezzi', 'gray'], ['ALTRO', 'Altro', 'gray']];
+const TIPI_SCAD = [['APPUNTAMENTO', 'Appuntamento', 'dark'], ['FORMAZIONE', 'Formazione', 'blue'], ['PERSONALE', 'Documenti personale', 'blue'], ['AZIENDA', 'Documenti azienda', 'purple'], ['ASSICURAZIONE', 'Assicurazioni', 'teal'], ['INCASSO', 'Incassi', 'green'], ['SICUREZZA', 'Sicurezza cantiere', 'amber'], ['COMMESSA', 'Documenti commessa', 'amber'], ['DOCUMENTALE', 'Documentale', 'purple'], ['MEZZO', 'Mezzi', 'gray'], ['ALTRO', 'Altro', 'gray']];
 
 const DEFAULT_ITER = [
   { codice: 'PREVENTIVO', nome: 'Preventivo', voci: ['Sopralluogo e rilievo', 'Computo e offerta economica', 'Invio al cliente'] },
@@ -662,7 +662,10 @@ function bloccoStep(c, s, nuovo) {
 function eventi() {
   const ev = [];
   const push = (data, tipo, titolo, sub, ref) => { if (data) ev.push({ data, tipo, titolo, sub: sub || '', ref: ref || null }); };
-  D('dipendenti').forEach((d) => (d.abilitazioni || []).forEach((a) => push(a.dataScadenza, 'FORMAZIONE', abLabel(a.tipo), nomeD(d), { r: 'dipendente', id: d.id })));
+  D('dipendenti').forEach((d) => {
+    (d.abilitazioni || []).forEach((a) => push(a.dataScadenza, 'FORMAZIONE', abLabel(a.tipo), nomeD(d), { r: 'dipendente', id: d.id }));
+    (d.documenti || []).forEach((x) => push(x.scadenza, 'PERSONALE', x.titolo || lab(TIPI_DOC_DIP, x.tipo), nomeD(d), { r: 'dipendente', id: d.id }));
+  });
   D('docAzienda').forEach((x) => push(x.dataScadenza, 'AZIENDA', x.titolo || lab(TIPI_DOC_AZ, x.tipo), x.ente || '', { r: 'azienda', tab: 'documenti' }));
   D('assicurazioni').forEach((x) => push(x.dataScadenza, 'ASSICURAZIONE', lab(TIPI_ASS, x.tipo), x.compagnia || '', { r: 'azienda', tab: 'assicurazioni' }));
   D('mezzi').forEach((m) => {
@@ -677,10 +680,20 @@ function eventi() {
     if (!ATTIVE.includes(c.stato)) return;
     (c.sicurezza || []).forEach((s) => push(s.dataScadenza, 'SICUREZZA', lab(TIPI_SIC, s.tipo) + ' ' + c.codice, c.titolo, { r: 'commessa', id: c.id, tab: 'sicurezza' }));
     (c.pagamenti || []).forEach((p) => { const res = (Number(p.importo) || 0) - incassatoP(p); if (res > 0.5) push(p.dataScadenza, 'INCASSO', 'Incasso ' + (p.descrizione || lab(TIPI_PAG, p.tipo)) + ' · ' + eur(res), c.codice + ' · ' + clienteNome(c.clienteId), { r: 'commessa', id: c.id, tab: 'economia' }); });
+    (c.documentiAmm || []).forEach((x) => push(x.scadenza, 'COMMESSA', (x.titolo || lab(TIPI_DOC_COMM, x.tipo)) + ' ' + c.codice, c.titolo, { r: 'commessa', id: c.id, tab: 'economia' }));
   });
   D('verbali').concat(D('riservato').filter((x) => x.kind === 'verbale')).forEach((v) => (v.azioni || []).forEach((a) => { if (a.stato !== 'CHIUSA') push(a.scadenza, 'ALTRO', a.descrizione, 'Azione da verbale · ' + (a.responsabile || ''), { r: 'documentale' }); }));
   D('scadenze').forEach((x) => { if (x.stato !== 'CHIUSA') push(x.data, x.tipo || 'ALTRO', (x.ora ? x.ora + ' · ' : '') + x.titolo, x.note || '', { r: 'scadenzario', id: x.id }); });
+  tuttiDoc().forEach((x) => push(x.scadenza, 'DOCUMENTALE', x.titolo, catPath(x.categoriaId), { r: 'documentale' }));
   return ev.sort((a, b) => a.data.localeCompare(b.data));
+}
+/* sezione "Documenti scaduti" riusabile dentro una pagina: stesse scadenze di eventi() (quindi
+   sempre coerenti con Dashboard e Calendario), filtrate a quelle passate e a quelle rilevanti
+   per quella pagina. */
+function cardScaduti(filtroFn) {
+  const scaduti = eventi().filter((e) => e.data < today() && filtroFn(e));
+  const righe = scaduti.length ? scaduti.map((e) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="goRef" data-r="' + esc(e.ref ? e.ref.r : 'scadenzario') + '" data-id="' + esc(e.ref && e.ref.id || '') + '" data-tab="' + esc(e.ref && e.ref.tab || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div></div>' + scadBadge(e.data) + '</div>').join('') : '<div class="empty">Nessun documento scaduto.</div>';
+  return card('Documenti scaduti' + (scaduti.length ? ' (' + scaduti.length + ')' : ''), righe);
 }
 function bloccati() {
   const wk = monday(today()), out = {};
@@ -1262,7 +1275,7 @@ function vPersonale() {
   let body = '', act = '';
   if (tab === 'dipendenti') {
     act = '<button class="btn p" data-a="dipNew">Nuovo dipendente</button>';
-    body = '<div class="card">' + tbl([{ h: 'Dipendente', f: (d) => '<b>' + esc(nomeD(d)) + '</b>' + (d.attivo === false ? ' ' + bd('Non attivo', 'grey') : '') }, { h: 'Mansione', f: (d) => esc(d.mansione) }, { h: 'Squadra', f: (d) => esc(squadraDi(d.id)) || '<span class="muted">—</span>' }, { h: 'Formazione', f: (d) => { const i = abInfo(d); return bd(i.ok + ' valide', 'green') + (i.sc ? ' ' + bd(i.sc + ' in scadenza', 'amber') : '') + (i.sca ? ' ' + bd(i.sca + ' scadute', 'red') : ''); } }], D('dipendenti').sort(byStr((x) => x.cognome)), { empty: 'Nessun dipendente.', row: (d) => 'data-a="goRef" data-r="dipendente" data-id="' + esc(d.id) + '"' }) + '</div>';
+    body = cardScaduti((e) => e.tipo === 'FORMAZIONE' || e.tipo === 'PERSONALE') + '<div class="card">' + tbl([{ h: 'Dipendente', f: (d) => '<b>' + esc(nomeD(d)) + '</b>' + (d.attivo === false ? ' ' + bd('Non attivo', 'grey') : '') }, { h: 'Mansione', f: (d) => esc(d.mansione) }, { h: 'Squadra', f: (d) => esc(squadraDi(d.id)) || '<span class="muted">—</span>' }, { h: 'Formazione', f: (d) => { const i = abInfo(d); return bd(i.ok + ' valide', 'green') + (i.sc ? ' ' + bd(i.sc + ' in scadenza', 'amber') : '') + (i.sca ? ' ' + bd(i.sca + ' scadute', 'red') : ''); } }], D('dipendenti').sort(byStr((x) => x.cognome)), { empty: 'Nessun dipendente.', row: (d) => 'data-a="goRef" data-r="dipendente" data-id="' + esc(d.id) + '"' }) + '</div>';
   } else if (tab === 'squadre') {
     act = '<button class="btn p" data-a="sqNew">Nuova squadra</button>';
     body = '<div class="card">' + tbl([{ h: 'Squadra', f: (s) => '<b>' + esc(s.nome) + '</b>' }, { h: 'Capo squadra', f: (s) => esc(nomeD(G('dipendenti', s.capoId))) }, { h: 'Componenti', f: (s) => esc((s.membri || []).map((id) => nomeD(G('dipendenti', id))).join(', ')) }, { h: 'Persone', r: true, f: (s) => (s.membri || []).length }], D('squadre').sort(byStr((x) => x.nome)), { empty: 'Nessuna squadra.', row: (s) => 'data-a="sqEdit" data-id="' + esc(s.id) + '"' }) + '</div>';
@@ -1323,7 +1336,7 @@ function aDocumenti() {
   const durc = docAzOk('DURC', today());
   const alert = durc ? '' : '<div class="alert red" style="margin-bottom:12px"><b>DURC mancante o scaduto.</b> Le nuove assegnazioni nel planning sono bloccate finché non viene inserito un DURC valido.</div>';
   const t = tbl([{ h: 'Documento', f: (x) => '<b>' + esc(x.titolo || lab(TIPI_DOC_AZ, x.tipo)) + '</b><div class="small muted">' + esc(lab(TIPI_DOC_AZ, x.tipo)) + '</div>' }, { h: 'Ente', f: (x) => esc(x.ente) }, { h: 'Numero', f: (x) => esc(x.numero) }, { h: 'Emissione', f: (x) => esc(fmtD(x.dataEmissione)) }, { h: 'Scadenza', f: (x) => x.dataScadenza ? scadBadge(x.dataScadenza) : '<span class="muted">Non scade</span>' }, { h: 'File', f: (x) => fileLink(x.file) }], D('docAzienda').sort((a, b) => String(a.dataScadenza || '9999').localeCompare(String(b.dataScadenza || '9999'))), { empty: 'Nessun documento. Inserisci DURC, visura camerale, abilitazioni e certificazioni.', row: (x) => 'data-a="daEdit" data-id="' + esc(x.id) + '"' });
-  return alert + card('Documenti e abilitazioni dell\u2019impresa', t, '<button class="btn p sm" data-a="daNew">+ Documento</button>');
+  return alert + cardScaduti((e) => e.tipo === 'AZIENDA') + card('Documenti e abilitazioni dell\u2019impresa', t, '<button class="btn p sm" data-a="daNew">+ Documento</button>');
 }
 A.daNew = () => openForm({ title: 'Documento aziendale', fields: docAzFields(), values: {}, folder: ['Azienda', 'Documenti aziendali'], onSave: (v) => put('docAzienda', newId('docAzienda'), docAzMap(v)) });
 A.daEdit = (d) => { const x = G('docAzienda', d.id); openForm({ title: 'Documento aziendale', fields: docAzFields(), values: x, folder: ['Azienda', 'Documenti aziendali'], onSave: (v) => patch('docAzienda', x.id, docAzMap(v)), onDelete: () => remove('docAzienda', x.id) }); };
@@ -1332,7 +1345,7 @@ const assFields = () => [{ k: 'tipo', l: 'Tipo di polizza', t: 'select', req: tr
 function aAssicurazioni() {
   const rif = (x) => { const m = x.mezzoId && G('mezzi', x.mezzoId), c = x.commessaId && G('commesse', x.commessaId); return esc(m ? m.descrizione + ' ' + (m.targa || '') : c ? c.codice : ''); };
   const t = tbl([{ h: 'Polizza', f: (x) => '<b>' + esc(lab(TIPI_ASS, x.tipo)) + '</b><div class="small muted">' + esc(x.compagnia) + (x.numeroPolizza ? ' · ' + esc(x.numeroPolizza) : '') + '</div>' }, { h: 'Riferimento', f: rif }, { h: 'Massimale', r: true, f: (x) => x.massimale ? eur(x.massimale) : '' }, { h: 'Premio', r: true, f: (x) => x.premio ? eur(x.premio) : '' }, { h: 'Scadenza', f: (x) => scadBadge(x.dataScadenza) }, { h: 'File', f: (x) => fileLink(x.file) }, { h: 'Quietanza', f: (x) => fileLink(x.quietanza) }], D('assicurazioni').sort((a, b) => String(a.dataScadenza).localeCompare(String(b.dataScadenza))), { empty: 'Nessuna polizza registrata.', row: (x) => 'data-a="assEdit" data-id="' + esc(x.id) + '"' });
-  return card('Assicurazioni', t, '<button class="btn p sm" data-a="assNew">+ Polizza</button>');
+  return cardScaduti((e) => e.tipo === 'ASSICURAZIONE') + card('Assicurazioni', t, '<button class="btn p sm" data-a="assNew">+ Polizza</button>');
 }
 A.assNew = () => openForm({ title: 'Polizza', wide: true, fields: assFields(), values: {}, folder: ['Azienda', 'Assicurazioni'], onSave: (v) => put('assicurazioni', newId('assicurazioni'), v) });
 A.assEdit = (d) => { const x = G('assicurazioni', d.id); openForm({ title: 'Polizza', wide: true, fields: assFields(), values: x, folder: ['Azienda', 'Assicurazioni'], onSave: (v) => patch('assicurazioni', x.id, v), onDelete: () => remove('assicurazioni', x.id) }); };
@@ -1357,7 +1370,7 @@ function aMezzi() {
   const veicoli = rows.filter((m) => m.tipo !== 'ATTREZZATURA'), attrezzi = rows.filter((m) => m.tipo === 'ATTREZZATURA');
   const tMezzi = tbl([{ h: 'Mezzo', f: nomeM }, { h: 'Assegnato a', f: assegn }, { h: 'Assicurazione', f: (m) => { const a = D('assicurazioni').filter((x) => x.mezzoId === m.id).sort((p, q) => q.dataScadenza.localeCompare(p.dataScadenza))[0]; return a ? scadBadge(a.dataScadenza) : '<span class="muted">—</span>'; } }, { h: 'Revisione', f: (m) => { const s = scadenzaControllo(m, 'REVISIONE'); return s ? scadBadge(s) : '<span class="muted">—</span>'; } }, { h: 'Bollo', f: (m) => { const s = scadenzaControllo(m, 'BOLLO'); return s ? scadBadge(s) : '<span class="muted">—</span>'; } }, { h: 'Ultimo controllo', f: ultCtl }], veicoli, Object.assign({ empty: 'Nessun mezzo. Aggiungi furgoni, cestelli, autocarri…' }, rowOpts));
   const tAttr = tbl([{ h: 'Attrezzatura', f: nomeM }, { h: 'Assegnato a', f: assegn }, { h: 'Ultimo controllo', f: ultCtl }], attrezzi, Object.assign({ empty: 'Nessuna attrezzatura.' }, rowOpts));
-  return '<div class="grid g2">' + card('Mezzi', tMezzi, '<button class="btn p sm" data-a="mezNew">+ Mezzo</button>') + card('Attrezzature', tAttr, '<button class="btn p sm" data-a="attrNew">+ Attrezzatura</button>') + '</div>';
+  return cardScaduti((e) => e.tipo === 'MEZZO') + '<div class="grid g2">' + card('Mezzi', tMezzi, '<button class="btn p sm" data-a="mezNew">+ Mezzo</button>') + card('Attrezzature', tAttr, '<button class="btn p sm" data-a="attrNew">+ Attrezzatura</button>') + '</div>';
 }
 A.mezNew = () => openForm({ title: 'Nuovo mezzo', fields: mezzoFields(), values: { attivo: true }, folder: (out) => ['Mezzi', out.descrizione || 'Nuovo mezzo'], onSave: async (v) => { const id = newId('mezzi'); await put('mezzi', id, Object.assign({}, v, { controlli: [] })); go('mezzo', id); } });
 A.attrNew = () => openForm({ title: 'Nuova attrezzatura', fields: mezzoFields(), values: { attivo: true, tipo: 'ATTREZZATURA' }, folder: (out) => ['Mezzi', out.descrizione || 'Nuova attrezzatura'], onSave: async (v) => { const id = newId('mezzi'); await put('mezzi', id, Object.assign({}, v, { controlli: [] })); go('mezzo', id); } });
@@ -1409,7 +1422,7 @@ function vDocumentale() {
   const verb = D('verbali').concat(S.admin ? D('riservato').filter((x) => x.kind === 'verbale') : []).sort((a, b) => String(b.data).localeCompare(String(a.data)));
   const vt = tbl([{ h: 'Data', f: (v) => esc(fmtD(v.data)) }, { h: 'Verbale', f: (v) => '<b>' + esc(v.oggetto) + '</b><div class="small muted">' + esc(lab(TIPI_VERBALE, v.tipo)) + '</div>' }, { h: 'Azioni', f: (v) => { const ap = (v.azioni || []).filter((a) => a.stato !== 'CHIUSA').length; return (v.azioni || []).length ? bd(ap + ' aperte / ' + v.azioni.length, ap ? 'amber' : 'green') : '<span class="muted">—</span>'; } }, { h: 'Riservato', f: (v) => (G('riservato', v.id) ? bd('Riservato', 'dark') : '') }, { h: 'File', f: (v) => fileLink(v.file) }], verb, { empty: 'Nessun verbale. Registra riunioni periodiche, verbali di sostenibilità e di rapporto con i dipendenti.', row: (v) => 'data-a="verbOpen" data-id="' + esc(v.id) + '" data-col="' + (G('riservato', v.id) ? 'riservato' : 'verbali') + '"' });
   return pageHead('Documentale', 'Sicurezza, mezzi, certificazioni, sostenibilità e verbali, divisi per categoria.', '<button class="btn" data-a="verbNew">Nuovo verbale</button><button class="btn p" data-a="docNew">Carica documento</button>') +
-    '<div class="grid" style="grid-template-columns:240px minmax(0,1fr)"><div class="card"><h2>Categorie</h2>' + tree + '</div><div class="stack"><div><div class="fbar"><input id="q" data-in="q" placeholder="Cerca documento" aria-label="Cerca" value="' + esc(S.q) + '"></div><div class="card">' + t + '</div></div>' + card('Verbali', vt) + (S.admin ? '' : '<div class="small muted">I documenti riservati (ad esempio i verbali con i dipendenti) sono visibili solo agli amministratori.</div>') + '</div></div>';
+    '<div class="grid" style="grid-template-columns:240px minmax(0,1fr)"><div class="card"><h2>Categorie</h2>' + tree + '</div><div class="stack">' + cardScaduti((e) => e.tipo === 'DOCUMENTALE') + '<div><div class="fbar"><input id="q" data-in="q" placeholder="Cerca documento" aria-label="Cerca" value="' + esc(S.q) + '"></div><div class="card">' + t + '</div></div>' + card('Verbali', vt) + (S.admin ? '' : '<div class="small muted">I documenti riservati (ad esempio i verbali con i dipendenti) sono visibili solo agli amministratori.</div>') + '</div></div>';
 }
 A.dcat = (d) => { S.dcat = d.c; queueRender(); };
 
