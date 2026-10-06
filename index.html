@@ -2905,13 +2905,20 @@ const DEFAULT_CATEGORIE = [
   { nome: 'Rapporti Banche', figli: ['Estratti conto', 'Contratti e fidi bancari', 'Corrispondenza con la banca'] },
   { nome: 'Altri documenti', figli: ['Altro'] }
 ];
-let categorieSeeding = false;
+let categorieSeeding = false, categorieSeedTentata = false;
 async function seedCategorieDefault() {
-  if (!S.admin || !db || categorieSeeding || !S.loaded.categorie || !S.loaded.impostazioni) return;
+  if (!S.admin || !db || categorieSeeding || categorieSeedTentata || !S.loaded.categorie || !S.loaded.impostazioni) return;
   const fatte = CFG('categorieSeed').fatte || [];
   const mancano = DEFAULT_CATEGORIE.filter((r) => !fatte.includes('cat-' + slug(r.nome)));
   if (!mancano.length) return;
-  categorieSeeding = true;
+  /* tentato una volta sola per sessione (anche se fallisce): questa funzione viene richiamata
+     ad ogni giro di polling di "categorie"/"impostazioni" (ogni 30 secondi) finché il flag che
+     segna "fatto" non viene salvato — se quel salvataggio non andasse a buon fine anche solo una
+     volta, senza questo limite si ripartirebbe da capo ad ogni giro, con scritture continue
+     verso lo stesso lucchetto condiviso del backend usato da ogni salvataggio dell'app
+     (bug reale, capitato con la migrazione delle scadenze mezzi: vedi migraScadenzeMezziDaiCampi
+     più sotto). Il prossimo tentativo si fa solo al prossimo caricamento della pagina. */
+  categorieSeeding = true; categorieSeedTentata = true;
   try {
     let ord = D('categorie').filter((x) => !x.parentId).length + 1;
     const nuoviCodici = [];
@@ -3083,18 +3090,23 @@ const DEFAULT_TIPI_LAVORO = [
    nuovo/rifacimento spostata nella commessa, vedi tabCantiere) — questi sono gli id di quella
    versione precedente, da togliere se erano arrivati a crearsi prima del ripensamento. */
 const TIPI_LAVORO_SEED_OBSOLETI = ['tipo-elettrico_nuova', 'tipo-elettrico_rifacimento', 'tipo-termico_nuova', 'tipo-termico_rifacimento', 'tipo-idraulico_nuova', 'tipo-idraulico_rifacimento', 'tipo-tecnologico_nuova', 'tipo-tecnologico_rifacimento', 'tipo-fotovoltaico_nuova', 'tipo-fotovoltaico_rifacimento', 'tipo-clima_nuova', 'tipo-clima_rifacimento'];
-let tipiLavoroSeeding = false, tipiLavoroObsoletiTentati = false;
+let tipiLavoroSeeding = false, tipiLavoroObsoletiTentati = false, tipiLavoroMancantiTentati = false;
 async function seedTipiLavoroDefault() {
   if (!S.admin || !db || tipiLavoroSeeding || !S.loaded.tipiLavoro || !S.loaded.impostazioni || !S.loaded.commesse) return;
   const fatte = CFG('tipiLavoroSeed').fatte || [];
-  const mancano = DEFAULT_TIPI_LAVORO.filter((r) => !fatte.includes('tipo-' + r.id));
-  /* il ripulisti delle tipologie obsolete (vedi sopra) si tenta una volta sola per sessione,
-     non ad ogni salvataggio di una commessa qualsiasi: se il backend è sotto carico e
-     l'eliminazione impiega tempo, ritentarla ad ogni modifica altrove aggiungerebbe altro
-     traffico proprio mentre il backend è già in difficoltà. */
+  /* sia la creazione delle tipologie mancanti sia la pulizia di quelle obsolete si tentano una
+     volta sola per sessione, anche se falliscono: questa funzione viene richiamata ad ogni giro
+     di polling (ogni 30 secondi) finché i rispettivi flag non vengono salvati — se un
+     salvataggio non andasse a buon fine anche solo una volta, senza questo limite si ripartirebbe
+     da capo ad ogni giro, con scritture continue verso lo stesso lucchetto condiviso del backend
+     usato da ogni salvataggio dell'app (bug reale, capitato con la migrazione delle scadenze
+     mezzi: vedi migraScadenzeMezziDaiCampi più sotto). Il prossimo tentativo si fa solo al
+     prossimo caricamento della pagina. */
+  const mancano = tipiLavoroMancantiTentati ? [] : DEFAULT_TIPI_LAVORO.filter((r) => !fatte.includes('tipo-' + r.id));
   const obsoleti = tipiLavoroObsoletiTentati ? [] : TIPI_LAVORO_SEED_OBSOLETI.filter((rid) => G('tipiLavoro', rid) && !D('commesse').some((c) => (c.tipiLavoro || []).includes(rid)));
   if (!mancano.length && !obsoleti.length) return;
   tipiLavoroSeeding = true;
+  if (mancano.length) tipiLavoroMancantiTentati = true;
   try {
     const nuoviCodici = [];
     for (const r of mancano) {
