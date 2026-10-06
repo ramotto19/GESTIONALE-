@@ -69,6 +69,7 @@ function handle(body) {
     case 'delete': return apiDelete(body, caller, role);
     case 'upload': return apiUpload(body, caller, role);
     case 'deleteFile': return apiDeleteFile(body, caller, role);
+    case 'archiveFile': return apiArchiveFile(body, caller, role);
     default: return { ok: false, error: 'Azione sconosciuta: ' + body.action };
   }
 }
@@ -197,6 +198,27 @@ function apiDeleteFile(body, caller, role) {
     return { ok: true };
   } catch (e) {
     return { ok: false, error: 'File non trovato o non eliminabile.' };
+  }
+}
+/* sposta (non elimina) la copia su Drive di un allegato sostituito dentro una sottocartella
+   "Scaduti" della stessa cartella in cui si trovava: pulizia di riserva, usata solo quando il
+   caricamento diretto dal browser non è disponibile. Non blocca mai nulla se fallisce (file già
+   spostato, permessi…): è un riordino, non un'operazione essenziale. */
+function apiArchiveFile(body, caller, role) {
+  try {
+    var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
+    if (!folderId) return { ok: false, error: 'Cartella allegati non configurata.' };
+    var dest = ensureFolderPath(DriveApp.getFolderById(folderId), (body.folderPath || []).concat('Scaduti'));
+    var file = DriveApp.getFileById(body.fileId);
+    var parents = file.getParents();
+    while (parents.hasNext()) {
+      var p = parents.next();
+      if (p.getId() !== dest.getId()) p.removeFile(file);
+    }
+    dest.addFile(file);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: 'File non trovato o non spostabile.' };
   }
 }
 

@@ -198,23 +198,32 @@ async function patch(col, id, part) { try { await serial(col + '/' + id, () => d
 async function remove(col, id) { try { await serial(col + '/' + id, () => db.doc(col + '/' + id).delete()); } catch (e) { toast(errMsg(e), 'err'); throw e; } }
 const newId = (col) => db.collection(col).doc().id;
 async function uploadFile(file, folderPath) { if (!assets) throw new Error('assets'); const r = await assets.upload(file, folderPath); return { id: r.id, name: file.name, url: r.url || '' }; }
-/* elimina (sposta nel cestino) la copia su Drive di un allegato caricato dall'app: usata quando
-   un campo "file" viene sostituito con un nuovo caricamento, un altro link, o rimosso, cosi' la
-   vecchia copia non resta per sempre orfana nella cartella (nessuna scheda la referenzia più).
+/* sposta (non elimina) la copia su Drive di un allegato caricato dall'app in una sottocartella
+   "Scaduti" della stessa cartella in cui si trovava: usata quando un campo "file" viene
+   sostituito con un nuovo caricamento, un altro link, o rimosso, cosi' la vecchia copia non
+   resta per sempre mescolata con quella attuale né viene cancellata, ma finisce in un archivio
+   facile da trovare (es. Personale/Mario Rossi/Documenti personali/Scaduti).
    Va in background, senza bloccare il salvataggio: se fallisce (permessi, file già sparito…)
-   non succede nulla di grave, resta solo un file da pulire a mano in futuro. */
-async function deleteDriveFile(id) {
+   non succede nulla di grave, resta solo un file da spostare a mano in futuro. */
+async function archiveDriveFile(id, folderPath) {
   if (!id) return;
   try {
-    /* solo il token già in cache, MAI una richiesta interattiva: questa pulizia parte da sola
-       in sottofondo dopo il salvataggio di un modulo, non da un click diretto dell'utente — se
-       si chiedesse qui un nuovo consenso a Google, capiterebbe di vedersi comparire la
+    /* solo il token già in cache, MAI una richiesta interattiva: questo spostamento parte da
+       solo in sottofondo dopo il salvataggio di un modulo, non da un click diretto dell'utente
+       — se si chiedesse qui un nuovo consenso a Google, capiterebbe di vedersi comparire la
        schermata di autorizzazione senza un motivo visibile legato a quello che si sta facendo.
        Se non c'è un token pronto si passa dritti al metodo di riserva via Apps Script. */
     const token = driveTokenMem || loadSavedDriveToken();
-    if (token) { await driveFetch(token, 'https://www.googleapis.com/drive/v3/files/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }); return; }
+    if (token) {
+      const destId = await driveEnsureFolderPath(token, (folderPath || []).concat('Scaduti'));
+      const info = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files/' + id + '?fields=parents');
+      const cur = await info.json();
+      const vecchi = (cur.parents || []).filter((p) => p !== destId).join(',');
+      await driveFetch(token, 'https://www.googleapis.com/drive/v3/files/' + id + '?addParents=' + encodeURIComponent(destId) + (vecchi ? '&removeParents=' + encodeURIComponent(vecchi) : '') + '&fields=id,parents', { method: 'PATCH' });
+      return;
+    }
   } catch (e) { /* si tenta il metodo di riserva */ }
-  try { await api('deleteFile', { fileId: id }); } catch (e2) { /* pulizia non essenziale */ }
+  try { await api('archiveFile', { fileId: id, folderPath: folderPath || [] }); } catch (e2) { /* pulizia non essenziale */ }
 }
 
 /* ---------- rendering ---------- */
@@ -295,7 +304,17 @@ async function submitForm() {
     const t = f.t || 'text', el = document.getElementById('f_' + f.k);
     let v;
     if (t === 'checkbox') v = !!(el && el.checked);
-    else if (t === 'multi') v = [...document.querySelectorAll('#mform .multi[data-k="' + f.k + '"] input:checked')].map((x) => x.value);
+    else if (t === 'multi') {
+      /* una voce già salvata ma non più tra le opzioni mostrate (es. cancellata da Personalizza
+         → Elenchi, o esclusa a priori come "Altro") non ha una casella da spuntare: ricostruire
+         il valore SOLO dalle caselle spuntate la perdeva per sempre al primo salvataggio
+         successivo, anche solo per cambiare un altro campo del modulo. Le voci così "orfane"
+         restano quindi, invariate, oltre a quelle effettivamente spuntate. */
+      const precedenti = (cfg.values && Array.isArray(cfg.values[f.k])) ? cfg.values[f.k] : [];
+      const mostrate = (f.opts || []).map((o) => String(o[0]));
+      const orfane = precedenti.filter((x) => !mostrate.includes(String(x)));
+      v = [...document.querySelectorAll('#mform .multi[data-k="' + f.k + '"] input:checked')].map((x) => x.value).concat(orfane);
+    }
     else if (t === 'file') {
       const oldVal = (cfg.values && cfg.values[f.k]) || null;
       v = oldVal;
@@ -307,9 +326,10 @@ async function submitForm() {
         catch (e) { err.textContent = 'Caricamento del file non riuscito.'; resetBtn(); return; }
       }
       /* se la copia precedente era stata caricata da noi (ha un id, a differenza di un link
-         scelto con "Sfoglia Drive") e non è più quella attuale, la vecchia copia su Drive non
-         serve più a nessuno: va ripulita, altrimenti resta orfana per sempre nella cartella */
-      if (oldVal && oldVal.id && (!v || v.url !== oldVal.url)) deleteDriveFile(oldVal.id);
+         scelto con "Sfoglia Drive") e non è più quella attuale, la vecchia copia su Drive viene
+         spostata nella sottocartella "Scaduti" (invece di restare mescolata con quella nuova,
+         o di essere cancellata) */
+      if (oldVal && oldVal.id && (!v || v.url !== oldVal.url)) archiveDriveFile(oldVal.id, folderPath());
     } else if (t === 'filemulti') {
       const files = el && el.files ? Array.from(el.files) : [], pe = document.getElementById('f_' + f.k + '_picked');
       let picked = []; try { picked = pe && pe.value ? JSON.parse(pe.value) : []; } catch (e2) { picked = []; }
