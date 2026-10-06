@@ -401,7 +401,7 @@ const STATI_PAG = [['PREVISTO', 'Previsto', 'grey'], ['PARZIALE', 'Parziale', 'a
 const MODALITA = [['BONIFICO', 'Bonifico'], ['RIBA', 'Ri.Ba.'], ['ASSEGNO', 'Assegno'], ['CONTANTI', 'Contanti'], ['CARTA', 'Carta'], ['ALTRO', 'Altro']];
 const TIPI_ASS = [['RCT_RCO', 'RC terzi e operai'], ['CAR', 'CAR (per commessa)'], ['INFORTUNI', 'Infortuni'], ['RC_PRODOTTO', 'RC prodotto'], ['MEZZI_AZIENDALI', 'Mezzi aziendali'], ['FIDEIUSSIONE', 'Fideiussione'], ['ALTRO', 'Altro']];
 const TIPI_MEZZO = [['FURGONE', 'Furgone'], ['AUTOVETTURA', 'Autovettura'], ['AUTOCARRO', 'Autocarro'], ['CESTELLO_PLE', 'Cestello / PLE'], ['RIMORCHIO', 'Rimorchio'], ['ATTREZZATURA', 'Attrezzatura'], ['ALTRO', 'Altro']];
-const TIPI_CONTROLLO = [['REVISIONE', 'Revisione'], ['TAGLIANDO', 'Tagliando'], ['VERIFICA_PERIODICA_CESTELLO', 'Verifica periodica cestello'], ['CONTROLLO_PRE_USO', 'Controllo pre-uso'], ['ALTRO', 'Altro']];
+const TIPI_CONTROLLO = [['REVISIONE', 'Revisione'], ['BOLLO', 'Bollo'], ['TAGLIANDO', 'Tagliando'], ['VERIFICA_PERIODICA_CESTELLO', 'Verifica periodica cestello'], ['CONTROLLO_PRE_USO', 'Controllo pre-uso'], ['ALTRO', 'Altro']];
 const ESITI = [['CONFORME', 'Conforme', 'green'], ['CONFORME_CON_RILIEVI', 'Conforme con rilievi', 'amber'], ['NON_CONFORME', 'Non conforme', 'red']];
 const TIPI_VERBALE = [['RIUNIONE_PERIODICA', 'Riunione periodica'], ['SOSTENIBILITA', 'Sostenibilità'], ['RAPPORTO_DIPENDENTE', 'Rapporto con dipendente (riservato)']];
 const STATI_AZIONE = [['APERTA', 'Aperta', 'grey'], ['IN_CORSO', 'In corso', 'amber'], ['CHIUSA', 'Chiusa', 'green']];
@@ -666,8 +666,9 @@ function eventi() {
   D('docAzienda').forEach((x) => push(x.dataScadenza, 'AZIENDA', x.titolo || lab(TIPI_DOC_AZ, x.tipo), x.ente || '', { r: 'azienda', tab: 'documenti' }));
   D('assicurazioni').forEach((x) => push(x.dataScadenza, 'ASSICURAZIONE', lab(TIPI_ASS, x.tipo), x.compagnia || '', { r: 'azienda', tab: 'assicurazioni' }));
   D('mezzi').forEach((m) => {
-    push(m.revisioneScadenza, 'MEZZO', 'Revisione ' + m.descrizione, m.targa || '', { r: 'mezzo', id: m.id });
-    push(m.bolloScadenza, 'MEZZO', 'Bollo ' + m.descrizione, m.targa || '', { r: 'mezzo', id: m.id });
+    /* revisione e bollo arrivano già da qui sotto (sono due dei tipi di controllo), presi
+       dall'ultimo controllo di quel tipo caricato: niente più campo scadenza separato da tenere
+       aggiornato a mano sulla scheda del mezzo. */
     const ult = {};
     (m.controlli || []).forEach((c) => { if (!ult[c.tipo] || c.data > ult[c.tipo].data) ult[c.tipo] = c; });
     Object.values(ult).forEach((c) => push(c.prossimaScadenza, 'MEZZO', lab(TIPI_CONTROLLO, c.tipo) + ' ' + m.descrizione, m.targa || '', { r: 'mezzo', id: m.id }));
@@ -1336,7 +1337,16 @@ function aAssicurazioni() {
 A.assNew = () => openForm({ title: 'Polizza', wide: true, fields: assFields(), values: {}, folder: ['Azienda', 'Assicurazioni'], onSave: (v) => put('assicurazioni', newId('assicurazioni'), v) });
 A.assEdit = (d) => { const x = G('assicurazioni', d.id); openForm({ title: 'Polizza', wide: true, fields: assFields(), values: x, folder: ['Azienda', 'Assicurazioni'], onSave: (v) => patch('assicurazioni', x.id, v), onDelete: () => remove('assicurazioni', x.id) }); };
 
-let mezzoFields = () => [{ k: 'tipo', l: 'Tipo', t: 'select', req: true, half: true, opts: TIPI_MEZZO }, { k: 'descrizione', l: 'Descrizione', req: true, half: true, ph: 'Es. Furgone Iveco Daily' }, { k: 'targa', l: 'Targa / matricola', half: true }, { k: 'assegnatoId', l: 'Assegnato a', t: 'select', half: true, opts: D('dipendenti').sort(byStr((x) => x.cognome)).map((d) => [d.id, nomeD(d)]) }, { k: 'revisioneScadenza', l: 'Prossima revisione', t: 'date', half: true }, { k: 'bolloScadenza', l: 'Scadenza bollo', t: 'date', half: true, hint: 'Tassa di possesso del mezzo' }, { k: 'attivo', l: 'In servizio', t: 'checkbox' }];
+let mezzoFields = () => [{ k: 'tipo', l: 'Tipo', t: 'select', req: true, half: true, opts: TIPI_MEZZO }, { k: 'descrizione', l: 'Descrizione', req: true, half: true, ph: 'Es. Furgone Iveco Daily' }, { k: 'targa', l: 'Targa / matricola', half: true }, { k: 'assegnatoId', l: 'Assegnato a', t: 'select', half: true, opts: D('dipendenti').sort(byStr((x) => x.cognome)).map((d) => [d.id, nomeD(d)]) }, { k: 'attivo', l: 'In servizio', t: 'checkbox' }];
+/* scadenza di revisione/bollo presa dall'ultimo controllo di quel tipo caricato in "Controlli,
+   revisioni e verbali" (quello con la data più recente che ha una prossima scadenza indicata),
+   invece che da un campo scritto a mano sulla scheda del mezzo: cosi' c'è un solo posto dove
+   tenerla aggiornata — quando carichi il nuovo documento di revisione o il bollo pagato, la
+   scadenza si aggiorna da sola, senza doverla ricopiare anche sulla scheda del mezzo. */
+function scadenzaControllo(m, tipo) {
+  const c = (m.controlli || []).filter((x) => x.tipo === tipo && x.prossimaScadenza).sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')))[0];
+  return c ? c.prossimaScadenza : '';
+}
 function aMezzi() {
   const ult = (m) => (m.controlli || []).slice().sort((a, b) => b.data.localeCompare(a.data))[0];
   const nomeM = (m) => '<b>' + esc(m.descrizione) + '</b><div class="small muted">' + esc(lab(TIPI_MEZZO, m.tipo)) + (m.targa ? ' · ' + esc(m.targa) : '') + '</div>';
@@ -1345,7 +1355,7 @@ function aMezzi() {
   const rowOpts = { row: (m) => 'data-a="goRef" data-r="mezzo" data-id="' + esc(m.id) + '"' };
   const rows = D('mezzi').sort(byStr((x) => x.descrizione));
   const veicoli = rows.filter((m) => m.tipo !== 'ATTREZZATURA'), attrezzi = rows.filter((m) => m.tipo === 'ATTREZZATURA');
-  const tMezzi = tbl([{ h: 'Mezzo', f: nomeM }, { h: 'Assegnato a', f: assegn }, { h: 'Assicurazione', f: (m) => { const a = D('assicurazioni').filter((x) => x.mezzoId === m.id).sort((p, q) => q.dataScadenza.localeCompare(p.dataScadenza))[0]; return a ? scadBadge(a.dataScadenza) : '<span class="muted">—</span>'; } }, { h: 'Revisione', f: (m) => scadBadge(m.revisioneScadenza) }, { h: 'Bollo', f: (m) => scadBadge(m.bolloScadenza) }, { h: 'Ultimo controllo', f: ultCtl }], veicoli, Object.assign({ empty: 'Nessun mezzo. Aggiungi furgoni, cestelli, autocarri…' }, rowOpts));
+  const tMezzi = tbl([{ h: 'Mezzo', f: nomeM }, { h: 'Assegnato a', f: assegn }, { h: 'Assicurazione', f: (m) => { const a = D('assicurazioni').filter((x) => x.mezzoId === m.id).sort((p, q) => q.dataScadenza.localeCompare(p.dataScadenza))[0]; return a ? scadBadge(a.dataScadenza) : '<span class="muted">—</span>'; } }, { h: 'Revisione', f: (m) => { const s = scadenzaControllo(m, 'REVISIONE'); return s ? scadBadge(s) : '<span class="muted">—</span>'; } }, { h: 'Bollo', f: (m) => { const s = scadenzaControllo(m, 'BOLLO'); return s ? scadBadge(s) : '<span class="muted">—</span>'; } }, { h: 'Ultimo controllo', f: ultCtl }], veicoli, Object.assign({ empty: 'Nessun mezzo. Aggiungi furgoni, cestelli, autocarri…' }, rowOpts));
   const tAttr = tbl([{ h: 'Attrezzatura', f: nomeM }, { h: 'Assegnato a', f: assegn }, { h: 'Ultimo controllo', f: ultCtl }], attrezzi, Object.assign({ empty: 'Nessuna attrezzatura.' }, rowOpts));
   return '<div class="grid g2">' + card('Mezzi', tMezzi, '<button class="btn p sm" data-a="mezNew">+ Mezzo</button>') + card('Attrezzature', tAttr, '<button class="btn p sm" data-a="attrNew">+ Attrezzatura</button>') + '</div>';
 }
@@ -1358,7 +1368,7 @@ function vMezzo() {
   const pol = D('assicurazioni').filter((x) => x.mezzoId === m.id);
   const polH = pol.length ? pol.map((x) => '<div class="blk"><div style="flex:1"><b>' + esc(lab(TIPI_ASS, x.tipo)) + '</b><div class="small muted">' + esc(x.compagnia) + '</div></div>' + scadBadge(x.dataScadenza) + '</div>').join('') : '<div class="empty">Nessuna polizza collegata. Aggiungila da Azienda › Assicurazioni.</div>';
   return '<div class="hd"><div><button class="lnk" data-a="go" data-r="azienda">← Azienda</button><h1 style="margin-top:8px">' + esc(m.descrizione) + '</h1><p class="sub">' + esc(lab(TIPI_MEZZO, m.tipo)) + (m.targa ? ' · ' + esc(m.targa) : '') + '</p></div><div class="row"><button class="btn" data-a="mezEdit" data-id="' + esc(m.id) + '">Modifica</button></div></div><div class="stack">' +
-    card('Scadenze del mezzo', '<div class="blk"><div style="flex:1"><b>Revisione</b></div>' + scadBadge(m.revisioneScadenza) + '</div><div class="blk"><div style="flex:1"><b>Bollo</b><div class="small muted">Tassa di possesso</div></div>' + scadBadge(m.bolloScadenza) + '</div>') + card('Controlli, revisioni e verbali', ctl, '<button class="btn p sm" data-a="ctlNew" data-id="' + esc(m.id) + '">+ Controllo</button>') + card('Polizze del mezzo', polH) + '</div>';
+    card('Scadenze del mezzo', '<div class="blk"><div style="flex:1"><b>Revisione</b></div>' + (scadenzaControllo(m, 'REVISIONE') ? scadBadge(scadenzaControllo(m, 'REVISIONE')) : '<span class="muted">Nessuna registrata</span>') + '</div><div class="blk"><div style="flex:1"><b>Bollo</b><div class="small muted">Tassa di possesso</div></div>' + (scadenzaControllo(m, 'BOLLO') ? scadBadge(scadenzaControllo(m, 'BOLLO')) : '<span class="muted">Nessuna registrata</span>') + '</div><div class="hint" style="margin-top:8px">Prese dall’ultimo controllo di tipo Revisione/Bollo caricato qui sotto: aggiungine uno nuovo per aggiornarle.</div>') + card('Controlli, revisioni e verbali', ctl, '<button class="btn p sm" data-a="ctlNew" data-id="' + esc(m.id) + '">+ Controllo</button>') + card('Polizze del mezzo', polH) + '</div>';
 }
 A.mezEdit = (d) => { const m = G('mezzi', d.id); openForm({ title: 'Mezzo', fields: mezzoFields(), values: m, folder: ['Mezzi', mezzoLabel(m)], onSave: (v) => patch('mezzi', m.id, v), onDelete: S.admin ? async () => { await remove('mezzi', m.id); go('azienda'); } : null }); };
 const ctlFields = () => [{ k: 'tipo', l: 'Tipo di controllo', t: 'select', req: true, opts: TIPI_CONTROLLO }, { k: 'data', l: 'Data', t: 'date', req: true, half: true }, { k: 'esito', l: 'Esito', t: 'select', half: true, opts: ESITI }, { k: 'eseguitoDa', l: 'Eseguito da (tecnico o ente)' }, { k: 'prossimaScadenza', l: 'Prossima scadenza', t: 'date', hint: 'Finisce automaticamente nello scadenzario.' }, { k: 'file', l: 'Verbale', t: 'file' }, { k: 'note', l: 'Note', t: 'textarea' }];
@@ -2842,6 +2852,7 @@ function subscribe(col) {
     if (col === 'accessi') { resolveProf(); if (S.route === 'ore' && !S.oreLoading) loadAllOre(S.mese || meseOggi(), true); }
     if (col === 'categorie' || col === 'impostazioni') seedCategorieDefault();
     if (col === 'tipiLavoro' || col === 'impostazioni' || col === 'commesse') seedTipiLavoroDefault();
+    if (col === 'mezzi' || col === 'impostazioni') migraScadenzeMezziDaiCampi();
   }, (err) => { console.warn('db', col, err); S.data[col] = S.data[col] || {}; S.loaded[col] = true; queueRender(); });
 }
 /* la prima volta che l'amministratore arriva su Documentale senza aver ancora creato nessuna
@@ -3065,6 +3076,30 @@ async function seedTipiLavoroDefault() {
     if (mancano.length) toast('Aggiunte le tipologie di lavoro di base: nella scheda di ogni commessa, sezione Cantiere, si sceglie nuova installazione o rifacimento per caricare la checklist pronta.');
   } catch (e) { /* se qualcosa fallisce a metà, riprova al prossimo caricamento della pagina */ }
   finally { tipiLavoroSeeding = false; }
+}
+/* una tantum: le scadenze di revisione/bollo dei mezzi non si leggono più dai due campi scritti
+   a mano sulla scheda del mezzo (revisioneScadenza/bolloScadenza) ma dall'ultimo controllo di
+   quel tipo caricato in "Controlli" (vedi scadenzaControllo). Per non perdere le scadenze che
+   erano già state scritte a mano prima di questo cambiamento, la prima volta si crea per ognuna
+   un controllo corrispondente (senza file allegato: solo la data di scadenza, per tenerla
+   visibile) — fatto una volta sola per mezzo, segnato in impostazioni → mezziScadenzeMigrate. */
+let mezziScadenzeMigrando = false;
+async function migraScadenzeMezziDaiCampi() {
+  if (!S.admin || !db || mezziScadenzeMigrando || !S.loaded.mezzi || !S.loaded.impostazioni) return;
+  if (CFG('mezziScadenzeMigrate').fatto) return;
+  const daMigrare = D('mezzi').filter((m) => (m.revisioneScadenza && !scadenzaControllo(m, 'REVISIONE')) || (m.bolloScadenza && !scadenzaControllo(m, 'BOLLO')));
+  mezziScadenzeMigrando = true;
+  try {
+    for (const m of daMigrare) {
+      const controlli = clone(m.controlli || []);
+      if (m.revisioneScadenza && !scadenzaControllo(m, 'REVISIONE')) controlli.push({ id: uid(), tipo: 'REVISIONE', data: '', esito: 'CONFORME', prossimaScadenza: m.revisioneScadenza, eseguitoDa: '', note: 'Migrato automaticamente dal vecchio campo "Prossima revisione".' });
+      if (m.bolloScadenza && !scadenzaControllo(m, 'BOLLO')) controlli.push({ id: uid(), tipo: 'BOLLO', data: '', esito: 'CONFORME', prossimaScadenza: m.bolloScadenza, eseguitoDa: '', note: 'Migrato automaticamente dal vecchio campo "Scadenza bollo".' });
+      await db.doc('mezzi/' + m.id).update({ controlli });
+    }
+    await db.doc('impostazioni/mezziScadenzeMigrate').set({ fatto: true });
+    if (daMigrare.length) toast('Scadenze di revisione/bollo spostate nei controlli dei mezzi: ora si aggiornano caricando un nuovo controllo, invece che modificando la scheda del mezzo.');
+  } catch (e) { /* se qualcosa fallisce a metà, riprova al prossimo caricamento della pagina */ }
+  finally { mezziScadenzeMigrando = false; }
 }
 function subscribeUser() {
   /* prima qui c'era un secondo ciclo di polling indipendente (db.doc(...).onSnapshot, con un
