@@ -3116,12 +3116,18 @@ async function seedTipiLavoroDefault() {
    erano già state scritte a mano prima di questo cambiamento, la prima volta si crea per ognuna
    un controllo corrispondente (senza file allegato: solo la data di scadenza, per tenerla
    visibile) — fatto una volta sola per mezzo, segnato in impostazioni → mezziScadenzeMigrate. */
-let mezziScadenzeMigrando = false;
+let mezziScadenzeMigrando = false, mezziScadenzeTentata = false;
 async function migraScadenzeMezziDaiCampi() {
-  if (!S.admin || !db || mezziScadenzeMigrando || !S.loaded.mezzi || !S.loaded.impostazioni) return;
+  if (!S.admin || !db || mezziScadenzeMigrando || mezziScadenzeTentata || !S.loaded.mezzi || !S.loaded.impostazioni) return;
   if (CFG('mezziScadenzeMigrate').fatto) return;
   const daMigrare = D('mezzi').filter((m) => (m.revisioneScadenza && !scadenzaControllo(m, 'REVISIONE')) || (m.bolloScadenza && !scadenzaControllo(m, 'BOLLO')));
-  mezziScadenzeMigrando = true;
+  /* tentata una volta sola per sessione (anche se fallisce): questa funzione viene richiamata
+     ad ogni giro di polling di "mezzi"/"impostazioni" (ogni 30 secondi), e se il salvataggio
+     finale del flag "fatto" non andasse a buon fine per un intoppo del backend, ritentare
+     l'intera migrazione ad ogni giro aggiungerebbe scritture continue proprio mentre il backend
+     è già in difficoltà, rallentando anche i salvataggi degli altri (stesso motivo per cui
+     seedTipiLavoroDefault limita così i suoi tentativi di pulizia). */
+  mezziScadenzeMigrando = true; mezziScadenzeTentata = true;
   try {
     for (const m of daMigrare) {
       const controlli = clone(m.controlli || []);
