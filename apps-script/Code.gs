@@ -444,7 +444,7 @@ function raccogliRiferimentiFile() {
    funziona qualunque sia il trattino usato. */
 function trovaRadiciAllegati(root) {
   var extra = [];
-  var it = DriveApp.searchFolders("name contains 'Gestionale Impianti' and name contains 'Allegati' and trashed = false");
+  var it = DriveApp.searchFolders("title contains 'Gestionale Impianti' and title contains 'Allegati' and trashed = false");
   while (it.hasNext()) {
     var f = it.next();
     if (f.getId() !== root.getId()) extra.push(f);
