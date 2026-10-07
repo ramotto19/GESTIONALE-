@@ -175,7 +175,7 @@ function apiDelete(body, caller, role) {
    in un'unica cartella piatta */
 function ensureFolderPath(rootFolder, segments) {
   var folder = rootFolder;
-  (segments || []).slice(0, 4).forEach(function (name) {
+  (segments || []).slice(0, 6).forEach(function (name) {
     name = String(name || '').trim().slice(0, 100);
     if (!name) return;
     var it = folder.getFoldersByName(name);
@@ -373,6 +373,7 @@ function raccogliRiferimentiFile() {
   var commessaLabel = function (c) { return (c.codice || '') + ' · ' + clienteNome(c.clienteId); };
   var nomeD = function (d) { return (d.cognome || '') + ' ' + (d.nome || ''); };
   var mezzoLabel = function (m) { return m.descrizione + (m.targa ? ' ' + m.targa : ''); };
+  var mezzoCartella = function (tipo) { return tipo === 'ATTREZZATURA' ? 'Attrezzature' : 'Mezzi'; };
   var catPath = function (id) {
     var c = categorie[id]; if (!c) return '';
     var p = c.parentId && categorie[c.parentId];
@@ -403,7 +404,7 @@ function raccogliRiferimentiFile() {
   });
 
   Object.keys(mezzi).forEach(function (id) {
-    var m = mezzi[id], lab = ['Mezzi', mezzoLabel(m)];
+    var m = mezzi[id], lab = ['Azienda', 'Mezzi e attrezzature', mezzoCartella(m.tipo), mezzoLabel(m)];
     (m.controlli || []).forEach(function (ct) { if (ct.file) add(ct.file, lab.concat('Controlli')); });
     (campiCfg.mezzi || []).forEach(function (cf) { if (cf.t === 'file' && m[cf.k]) add(m[cf.k], lab); });
   });
@@ -424,7 +425,7 @@ function raccogliRiferimentiFile() {
     else if (x.kind === 'verbale' && x.file) add(x.file, ['Documentale', 'Verbali']);
   });
   Object.keys(verbali).forEach(function (id) { var x = verbali[id]; if (x.file) add(x.file, ['Documentale', 'Verbali']); });
-  Object.keys(docAzienda).forEach(function (id) { var x = docAzienda[id]; if (x.file) add(x.file, ['Azienda', 'Documenti aziendali']); });
+  Object.keys(docAzienda).forEach(function (id) { var x = docAzienda[id]; if (x.file) add(x.file, ['Azienda', 'Documenti impresa']); });
   Object.keys(assicurazioni).forEach(function (id) { var x = assicurazioni[id]; if (x.file) add(x.file, ['Azienda', 'Assicurazioni']); });
   Object.keys(registri).forEach(function (id) {
     var x = registri[id], def = registriDefs[x.reg]; if (!def) return;
@@ -460,7 +461,7 @@ function migraCartelle() { return migraCartelleEsegui(false); }
    solo per fare questo controllo). */
 function trovaFolderIdEsistente(radiceFolder, segments) {
   var folder = radiceFolder;
-  for (var i = 0; i < (segments || []).length && i < 4; i++) {
+  for (var i = 0; i < (segments || []).length && i < 6; i++) {
     var nome = String(segments[i] || '').trim().slice(0, 100);
     if (!nome) continue;
     var it = folder.getFoldersByName(nome);
