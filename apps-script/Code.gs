@@ -435,14 +435,20 @@ function raccogliRiferimentiFile() {
 }
 
 /* trova tutte le cartelle "Allegati" (quella principale collegata a FOLDER_ID, più eventuali
-   doppioni creati dal bug del trattino corretto il 2026-10-01): usata sia dalla migrazione sia
-   dalla ricerca dei file orfani. */
+   doppioni): usata sia dalla migrazione sia dalla ricerca dei file orfani. Cerca per
+   CONTENUTO del nome ("contains", non il nome esatto): un confronto col nome esatto, trattino
+   compreso, si è dimostrato fragile — un copia-incolla manuale del codice può cambiare quel
+   trattino senza che si noti, e da quel momento la ricerca non trova più i doppioni già
+   esistenti (bug successo più volte: trattino diverso trovato il 2026-10-01, poi di nuovo con
+   due cartelle create quasi insieme il 2026-10-06). Cercare "contiene" invece che "è uguale a"
+   funziona qualunque sia il trattino usato. */
 function trovaRadiciAllegati(root) {
   var extra = [];
-  ['Gestionale Impianti — Allegati', 'Gestionale Impianti - Allegati'].forEach(function (nome) {
-    var it = DriveApp.getFoldersByName(nome);
-    while (it.hasNext()) { var f = it.next(); if (f.getId() !== root.getId()) extra.push(f); }
-  });
+  var it = DriveApp.searchFolders("name contains 'Gestionale Impianti' and name contains 'Allegati' and trashed = false");
+  while (it.hasNext()) {
+    var f = it.next();
+    if (f.getId() !== root.getId()) extra.push(f);
+  }
   return [root].concat(extra);
 }
 
