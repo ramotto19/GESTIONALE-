@@ -454,6 +454,21 @@ function trovaRadiciAllegati(root) {
 
 function migraCartelleAnteprima() { return migraCartelleEsegui(true); }
 function migraCartelle() { return migraCartelleEsegui(false); }
+/* cerca (senza creare nulla) la sottocartella che corrisponde a un percorso di pagina/sezione,
+   partendo da una cartella radice: restituisce null se un pezzo del percorso non esiste ancora
+   (usata per capire se un file è GIÀ al posto giusto, senza il rischio di crearlo per sbaglio
+   solo per fare questo controllo). */
+function trovaFolderIdEsistente(radiceFolder, segments) {
+  var folder = radiceFolder;
+  for (var i = 0; i < (segments || []).length && i < 4; i++) {
+    var nome = String(segments[i] || '').trim().slice(0, 100);
+    if (!nome) continue;
+    var it = folder.getFoldersByName(nome);
+    if (!it.hasNext()) return null;
+    folder = it.next();
+  }
+  return folder.getId();
+}
 function migraCartelleEsegui(dryRun) {
   var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
   if (!folderId) { Logger.log('Cartella allegati non configurata: esegui prima setup().'); return; }
@@ -461,6 +476,7 @@ function migraCartelleEsegui(dryRun) {
 
   var radici = trovaRadiciAllegati(root);
   if (radici.length > 1) Logger.log('Trovate ' + (radici.length - 1) + ' cartella/e "Allegati" in più oltre a quella principale: i loro file verranno spostati nella struttura dentro "' + root.getName() + '" e poi resteranno vuote (puoi eliminarle a mano da Drive).');
+  var radiciIds = {}; radici.forEach(function (r) { radiciIds[r.getId()] = true; });
 
   var tasks = raccogliRiferimentiFile();
 
@@ -469,20 +485,43 @@ function migraCartelleEsegui(dryRun) {
     var file;
     try { file = DriveApp.getFileById(t.fileId); }
     catch (e) { nonTrovati++; return; }
-    var parents = file.getParents(), radiceTrovata = null;
-    while (parents.hasNext()) {
-      var p = parents.next();
-      for (var i = 0; i < radici.length; i++) { if (radici[i].getId() === p.getId()) { radiceTrovata = radici[i]; break; } }
-      if (radiceTrovata) break;
+
+    var parents = file.getParents(), direct = parents.hasNext() ? parents.next() : null;
+
+    /* se il genitore diretto del file è già esattamente la cartella corretta (dentro la
+       cartella radice principale), non c'è nulla da fare: era solo questo controllo che prima
+       mancava — un file già organizzato in una sottocartella (anche dentro la cartella doppia
+       sbagliata, con la STESSA struttura Commesse/Personale/ecc.) non veniva riconosciuto come
+       "da spostare" perché il controllo guardava solo se il genitore diretto fosse una delle
+       cartelle radice, non una loro sottocartella. */
+    var destIdEsistente = trovaFolderIdEsistente(root, t.segments);
+    if (direct && destIdEsistente && direct.getId() === destIdEsistente) return;
+
+    /* risale la catena delle cartelle superiori (fino a 8 livelli, più che sufficienti) per
+       capire se il file si trova comunque DENTRO l'albero di una delle cartelle "Allegati"
+       conosciute (radice principale o doppioni), anche se non è nel punto esatto giusto —
+       senza toccare MAI un file che sta altrove nel Drive dell'utente (es. un link scelto con
+       "Sfoglia Drive" da una cartella sua, che non c'entra nulla con questo). */
+    var dentro = false, cursore = direct, profondita = 0;
+    while (cursore && profondita < 8) {
+      if (radiciIds[cursore.getId()]) { dentro = true; break; }
+      var pp = cursore.getParents();
+      cursore = pp.hasNext() ? pp.next() : null;
+      profondita++;
     }
-    if (!radiceTrovata) { nonInRadice++; return; }
+    if (!dentro) { nonInRadice++; return; }
+
     var chiave = t.segments.join(' / ');
     cartelleUsate[chiave] = (cartelleUsate[chiave] || 0) + 1;
     if (dryRun) { daSpostare++; return; }
     try {
       var dest = ensureFolderPath(root, t.segments);
       dest.addFile(file);
-      radiceTrovata.removeFile(file);
+      var curParents = file.getParents();
+      while (curParents.hasNext()) {
+        var cp = curParents.next();
+        if (cp.getId() !== dest.getId()) cp.removeFile(file);
+      }
       daSpostare++;
     } catch (e2) { errori++; }
   });
