@@ -61,7 +61,13 @@ function handle(body) {
   var role = resolveRole(caller.email);
   if (!role) return { ok: true, unauthorized: true, email: caller.email, name: caller.name };
   switch (body.action) {
-    case 'whoami': return { ok: true, email: caller.email, name: caller.name, role: role };
+    /* driveFolderId: l'id vero (fisso) della cartella allegati, letto da PropertiesService
+       (lo stesso usato da apiUpload). Lo legge anche il browser, cosi' quando carica un file
+       direttamente su Drive usa SEMPRE questo id invece di cercare la cartella per nome — la
+       ricerca per nome, se due caricamenti partivano quasi insieme (due schede aperte, due
+       salvataggi ravvicinati), poteva non trovarla ancora in nessuno dei due e farne creare una
+       a testa: da qui le cartelle "Allegati" doppie viste più volte. */
+    case 'whoami': return { ok: true, email: caller.email, name: caller.name, role: role, driveFolderId: PropertiesService.getScriptProperties().getProperty('FOLDER_ID') || '' };
     case 'listAll': return apiListAll(caller, role);
     case 'get': return apiGet(body, caller, role);
     case 'set': return apiSet(body, caller, role);

@@ -2505,17 +2505,35 @@ async function driveFetch(token, url, init) {
   if (!res.ok) { const err = new Error('drive ' + res.status); err.status = res.status; throw err; }
   return res;
 }
+/* una sola risoluzione della cartella radice per tutta la sessione, condivisa da QUALUNQUE
+   chiamata (non solo quelle con lo stesso percorso): senza, due caricamenti partiti quasi
+   insieme — due schede aperte, due salvataggi ravvicinati — potevano eseguire ciascuno la
+   propria ricerca "esiste già?" prima che l'altro avesse finito di crearla, e trovarsela
+   entrambi assente: risultato, due cartelle "Allegati" diverse create nello stesso istante
+   (bug reale, successo più volte). */
+let driveRootFolderPromise = null;
 async function driveEnsureFolder(token) {
-  const q = "name='" + DRIVE_FOLDER_NAME.replace(/'/g, "\\'") + "' and mimeType='application/vnd.google-apps.folder' and trashed=false";
-  const res = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id)&spaces=drive');
-  const data = await res.json();
-  if (data.files && data.files[0]) return data.files[0].id;
-  const created = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?fields=id', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
-  });
-  const c = await created.json();
-  return c.id;
+  if (driveRootFolderPromise) {
+    try { return await driveRootFolderPromise; } catch (e) { driveRootFolderPromise = null; }
+  }
+  driveRootFolderPromise = (async () => {
+    /* l'id vero, fisso, della cartella — lo stesso che usa anche il caricamento di riserva via
+       Apps Script — se il backend lo conosce (whoami lo restituisce): così la cartella si trova
+       sempre per id, non cercandola per nome ogni volta, eliminando la corsa alla radice. La
+       ricerca per nome resta solo come riserva, per quando questo non è ancora disponibile. */
+    try { const who = await whoami(); if (who && who.driveFolderId) return who.driveFolderId; } catch (e) { /* si passa alla ricerca per nome */ }
+    const q = "name='" + DRIVE_FOLDER_NAME.replace(/'/g, "\\'") + "' and mimeType='application/vnd.google-apps.folder' and trashed=false";
+    const res = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id)&spaces=drive');
+    const data = await res.json();
+    if (data.files && data.files[0]) return data.files[0].id;
+    const created = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?fields=id', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
+    });
+    const c = await created.json();
+    return c.id;
+  })();
+  try { return await driveRootFolderPromise; } catch (e) { driveRootFolderPromise = null; throw e; }
 }
 async function driveEnsureChildFolder(token, parentId, name) {
   const q = "name='" + name.replace(/'/g, "\\'") + "' and '" + parentId + "' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false";
