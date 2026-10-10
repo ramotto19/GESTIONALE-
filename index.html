@@ -781,6 +781,7 @@ function vDashboard() {
   att.forEach((c) => (c.pagamenti || []).forEach((p) => { const r = (Number(p.importo) || 0) - incassatoP(p); if (r <= 0.5 || !p.dataScadenza) return; if (p.dataScadenza < t) ritardo += r; else if (diff(p.dataScadenza, t) <= 30) attesi += r; }));
   const wk = monday(t), libere = D('squadre').filter((s) => !D('assegnazioni').some((a) => a.squadraId === s.id && a.settimana === wk));
   const bl = bloccati(), scadute = prox.filter((e) => e.data < t).length;
+  const pagScaduti = eventi().filter((e) => e.tipo === 'PAGAMENTO' && e.data < t);
   const vuoto = !cs.length && !D('clienti').length;
   let h = pageHead('Dashboard', 'Commesse, scadenze e squadre in un colpo d\u2019occhio.', '<button class="btn p" data-a="newC">Nuova commessa</button>');
   if (vuoto) {
@@ -789,7 +790,8 @@ function vDashboard() {
   h += '<div class="grid g4" style="margin-bottom:16px">' + kpi('Commesse attive', att.length, att.filter((c) => c.stato === 'IN_CORSO').length + ' in corso') + kpi('Incassi attesi (30 giorni)', eur(attesi), ritardo > 0 ? eur(ritardo) + ' in ritardo' : 'Nessun ritardo') + kpi('Scadenze entro 30 giorni', prox.length, scadute ? scadute + ' già scadute' : 'Nessuna scaduta') + kpi('Squadre libere questa settimana', libere.length, libere.map((s) => s.nome).join(', ')) + '</div>';
   const proxHtml = prox.length ? prox.slice(0, 10).map((e) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="goRef" data-r="' + esc(e.ref ? e.ref.r : 'scadenzario') + '" data-id="' + esc(e.ref && e.ref.id || '') + '" data-tab="' + esc(e.ref && e.ref.tab || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div></div>' + bd(lab(TIPI_SCAD, e.tipo), tone(TIPI_SCAD, e.tipo)) + '<div style="min-width:120px;text-align:right">' + scadBadge(e.data) + '</div></div>').join('') : '<div class="empty">Nessuna scadenza nei prossimi 30 giorni.</div>';
   const blHtml = bl.length ? bl.map((b) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="goRef" data-r="commessa" data-id="' + esc(b.c.id) + '" data-tab="iter">' + esc(commessaLabel(b.c)) + '</button><div class="small muted">Assegnata dalla sett. ' + isoWeek(b.settimana) + ': ' + esc(b.m.join(', ')) + '</div></div>' + bd('Bloccata', 'red') + '</div>').join('') : '<div class="empty">Nessun blocco: le commesse pianificate hanno conferma d\u2019ordine e POS.</div>';
-  h += '<div class="grid g2"><div class="stack">' + card('Prossime scadenze', proxHtml, '<button class="btn sm" data-a="go" data-r="scadenzario">Calendario</button>') + '</div><div class="stack">' + card('Passaggi bloccanti', blHtml, '<button class="btn sm" data-a="go" data-r="iter">Iter commesse</button>') + '</div></div>';
+  const pagScadutiHtml = pagScaduti.length ? pagScaduti.map((e) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="goRef" data-r="scadenzario" data-id="' + esc(e.ref && e.ref.id || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div></div>' + scadBadge(e.data) + (e.ref && e.ref.id ? '<button class="btn sm p" style="margin-left:8px" data-a="scadPagato" data-id="' + esc(e.ref.id) + '">Pagato</button>' : '') + '</div>').join('') : '<div class="empty">Nessun pagamento scaduto.</div>';
+  h += '<div class="grid g2"><div class="stack">' + card('Prossime scadenze', proxHtml, '<button class="btn sm" data-a="go" data-r="scadenzario">Calendario</button>') + card('Pagamenti scaduti' + (pagScaduti.length ? ' (' + pagScaduti.length + ')' : ''), pagScadutiHtml, '<button class="btn sm" data-a="goPagScaduti">Vedi pagamenti</button>') + '</div><div class="stack">' + card('Passaggi bloccanti', blHtml, '<button class="btn sm" data-a="go" data-r="iter">Iter commesse</button>') + '</div></div>';
   return h;
 }
 
@@ -1294,6 +1296,7 @@ A.scadPagato = async (d) => {
   try { await patch('scadenze', d.id, { stato: 'CHIUSA' }); toast('Segnato come pagato.'); }
   catch (e) { toast(errMsg(e), 'err'); }
 };
+A.goPagScaduti = () => { S.ftipo = 'PAGAMENTO'; go('scadenzario'); };
 
 /* ---------- clienti ---------- */
 let clienteFields = () => [{ k: 'ragioneSociale', l: 'Ragione sociale', req: true }, { k: 'piva', l: 'Partita IVA', half: true }, { k: 'referente', l: 'Referente', half: true }, { k: 'indirizzo', l: 'Indirizzo' }, { k: 'citta', l: 'Città', half: true }, { k: 'provincia', l: 'Provincia', half: true }, { k: 'telefono', l: 'Telefono', half: true }, { k: 'email', l: 'Email', half: true }, { k: 'pec', l: 'PEC' }, { k: 'note', l: 'Note', t: 'textarea' }];
