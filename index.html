@@ -719,6 +719,14 @@ function cardScaduti(filtroFn) {
   const righe = scaduti.length ? scaduti.map((e) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="goRef" data-r="' + esc(e.ref ? e.ref.r : 'scadenzario') + '" data-id="' + esc(e.ref && e.ref.id || '') + '" data-tab="' + esc(e.ref && e.ref.tab || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div></div>' + scadBadge(e.data) + '</div>').join('') : '<div class="empty">Nessun documento scaduto.</div>';
   return card('Documenti scaduti' + (scaduti.length ? ' (' + scaduti.length + ')' : ''), righe);
 }
+/* card "Pagamenti scaduti" (le scadenze di tipo Pagamento inserite dal Calendario, non ancora
+   pagate): stessa card riusata in Dashboard e in Azienda › Documenti impresa, con il pulsante
+   "Pagato" diretto per chiuderle senza dover aprire la scheda. */
+function cardPagamentiScaduti() {
+  const pagScaduti = eventi().filter((e) => e.tipo === 'PAGAMENTO' && e.data < today());
+  const righe = pagScaduti.length ? pagScaduti.map((e) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="goRef" data-r="scadenzario" data-id="' + esc(e.ref && e.ref.id || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div></div>' + scadBadge(e.data) + (e.ref && e.ref.id ? '<button class="btn sm p" style="margin-left:8px" data-a="scadPagato" data-id="' + esc(e.ref.id) + '">Pagato</button>' : '') + '</div>').join('') : '<div class="empty">Nessun pagamento scaduto.</div>';
+  return card('Pagamenti scaduti' + (pagScaduti.length ? ' (' + pagScaduti.length + ')' : ''), righe, '<button class="btn sm" data-a="goPagScaduti">Vedi pagamenti</button>');
+}
 function bloccati() {
   const wk = monday(today()), out = {};
   D('assegnazioni').filter((a) => a.settimana >= wk).forEach((a) => {
@@ -781,7 +789,6 @@ function vDashboard() {
   att.forEach((c) => (c.pagamenti || []).forEach((p) => { const r = (Number(p.importo) || 0) - incassatoP(p); if (r <= 0.5 || !p.dataScadenza) return; if (p.dataScadenza < t) ritardo += r; else if (diff(p.dataScadenza, t) <= 30) attesi += r; }));
   const wk = monday(t), libere = D('squadre').filter((s) => !D('assegnazioni').some((a) => a.squadraId === s.id && a.settimana === wk));
   const bl = bloccati(), scadute = prox.filter((e) => e.data < t).length;
-  const pagScaduti = eventi().filter((e) => e.tipo === 'PAGAMENTO' && e.data < t);
   const vuoto = !cs.length && !D('clienti').length;
   let h = pageHead('Dashboard', 'Commesse, scadenze e squadre in un colpo d\u2019occhio.', '<button class="btn p" data-a="newC">Nuova commessa</button>');
   if (vuoto) {
@@ -790,8 +797,7 @@ function vDashboard() {
   h += '<div class="grid g4" style="margin-bottom:16px">' + kpi('Commesse attive', att.length, att.filter((c) => c.stato === 'IN_CORSO').length + ' in corso') + kpi('Incassi attesi (30 giorni)', eur(attesi), ritardo > 0 ? eur(ritardo) + ' in ritardo' : 'Nessun ritardo') + kpi('Scadenze entro 30 giorni', prox.length, scadute ? scadute + ' già scadute' : 'Nessuna scaduta') + kpi('Squadre libere questa settimana', libere.length, libere.map((s) => s.nome).join(', ')) + '</div>';
   const proxHtml = prox.length ? prox.slice(0, 10).map((e) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="goRef" data-r="' + esc(e.ref ? e.ref.r : 'scadenzario') + '" data-id="' + esc(e.ref && e.ref.id || '') + '" data-tab="' + esc(e.ref && e.ref.tab || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div></div>' + bd(lab(TIPI_SCAD, e.tipo), tone(TIPI_SCAD, e.tipo)) + '<div style="min-width:120px;text-align:right">' + scadBadge(e.data) + '</div></div>').join('') : '<div class="empty">Nessuna scadenza nei prossimi 30 giorni.</div>';
   const blHtml = bl.length ? bl.map((b) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="goRef" data-r="commessa" data-id="' + esc(b.c.id) + '" data-tab="iter">' + esc(commessaLabel(b.c)) + '</button><div class="small muted">Assegnata dalla sett. ' + isoWeek(b.settimana) + ': ' + esc(b.m.join(', ')) + '</div></div>' + bd('Bloccata', 'red') + '</div>').join('') : '<div class="empty">Nessun blocco: le commesse pianificate hanno conferma d\u2019ordine e POS.</div>';
-  const pagScadutiHtml = pagScaduti.length ? pagScaduti.map((e) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="goRef" data-r="scadenzario" data-id="' + esc(e.ref && e.ref.id || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div></div>' + scadBadge(e.data) + (e.ref && e.ref.id ? '<button class="btn sm p" style="margin-left:8px" data-a="scadPagato" data-id="' + esc(e.ref.id) + '">Pagato</button>' : '') + '</div>').join('') : '<div class="empty">Nessun pagamento scaduto.</div>';
-  h += '<div class="grid g2"><div class="stack">' + card('Prossime scadenze', proxHtml, '<button class="btn sm" data-a="go" data-r="scadenzario">Calendario</button>') + card('Pagamenti scaduti' + (pagScaduti.length ? ' (' + pagScaduti.length + ')' : ''), pagScadutiHtml, '<button class="btn sm" data-a="goPagScaduti">Vedi pagamenti</button>') + '</div><div class="stack">' + card('Passaggi bloccanti', blHtml, '<button class="btn sm" data-a="go" data-r="iter">Iter commesse</button>') + '</div></div>';
+  h += '<div class="grid g2"><div class="stack">' + card('Prossime scadenze', proxHtml, '<button class="btn sm" data-a="go" data-r="scadenzario">Calendario</button>') + cardPagamentiScaduti() + '</div><div class="stack">' + card('Passaggi bloccanti', blHtml, '<button class="btn sm" data-a="go" data-r="iter">Iter commesse</button>') + '</div></div>';
   return h;
 }
 
@@ -1377,7 +1383,7 @@ function aDocumenti() {
   const durc = docAzOk('DURC', today());
   const alert = durc ? '' : '<div class="alert red" style="margin-bottom:12px"><b>DURC mancante o scaduto.</b> Le nuove assegnazioni nel planning sono bloccate finché non viene inserito un DURC valido.</div>';
   const t = tbl([{ h: 'Documento', f: (x) => '<b>' + esc(x.titolo || lab(TIPI_DOC_AZ, x.tipo)) + '</b><div class="small muted">' + esc(lab(TIPI_DOC_AZ, x.tipo)) + '</div>' }, { h: 'Ente', f: (x) => esc(x.ente) }, { h: 'Numero', f: (x) => esc(x.numero) }, { h: 'Emissione', f: (x) => esc(fmtD(x.dataEmissione)) }, { h: 'Scadenza', f: (x) => x.dataScadenza ? scadBadge(x.dataScadenza) : '<span class="muted">Non scade</span>' }, { h: 'File', f: (x) => fileLink(x.file) }], D('docAzienda').sort((a, b) => String(a.dataScadenza || '9999').localeCompare(String(b.dataScadenza || '9999'))), { empty: 'Nessun documento. Inserisci DURC, visura camerale, abilitazioni e certificazioni.', row: (x) => 'data-a="daEdit" data-id="' + esc(x.id) + '"' });
-  return alert + cardScaduti((e) => e.tipo === 'AZIENDA') + card('Documenti e abilitazioni dell\u2019impresa', t, '<button class="btn p sm" data-a="daNew">+ Documento</button>');
+  return alert + cardScaduti((e) => e.tipo === 'AZIENDA') + cardPagamentiScaduti() + card('Documenti e abilitazioni dell\u2019impresa', t, '<button class="btn p sm" data-a="daNew">+ Documento</button>');
 }
 A.daNew = () => openForm({ title: 'Documento aziendale', fields: docAzFields(), values: {}, folder: ['Azienda', 'Documenti impresa'], onSave: (v) => put('docAzienda', newId('docAzienda'), docAzMap(v)) });
 A.daEdit = (d) => { const x = G('docAzienda', d.id); openForm({ title: 'Documento aziendale', fields: docAzFields(), values: x, folder: ['Azienda', 'Documenti impresa'], onSave: (v) => patch('docAzienda', x.id, docAzMap(v)), onDelete: () => remove('docAzienda', x.id) }); };
