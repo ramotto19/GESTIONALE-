@@ -426,7 +426,7 @@ const ESITI = [['CONFORME', 'Conforme', 'green'], ['CONFORME_CON_RILIEVI', 'Conf
 const TIPI_VERBALE = [['RIUNIONE_PERIODICA', 'Riunione periodica'], ['SOSTENIBILITA', 'Sostenibilità'], ['RAPPORTO_DIPENDENTE', 'Rapporto con dipendente (riservato)']];
 const STATI_AZIONE = [['APERTA', 'Aperta', 'grey'], ['IN_CORSO', 'In corso', 'amber'], ['CHIUSA', 'Chiusa', 'green']];
 const ACCESSI = [['TUTTI', 'Tutti', 'grey'], ['RESPONSABILI', 'Responsabili', 'grey'], ['AMMINISTRAZIONE', 'Amministrazione', 'grey'], ['RISERVATO', 'Riservato', 'dark']];
-const TIPI_SCAD = [['APPUNTAMENTO', 'Appuntamento', 'dark'], ['FORMAZIONE', 'Formazione', 'blue'], ['PERSONALE', 'Documenti personale', 'blue'], ['AZIENDA', 'Documenti azienda', 'purple'], ['ASSICURAZIONE', 'Assicurazioni', 'teal'], ['INCASSO', 'Incassi', 'green'], ['SICUREZZA', 'Sicurezza cantiere', 'amber'], ['COMMESSA', 'Documenti commessa', 'amber'], ['DOCUMENTALE', 'Documentale', 'purple'], ['MEZZO', 'Mezzi', 'gray'], ['ALTRO', 'Altro', 'gray']];
+const TIPI_SCAD = [['APPUNTAMENTO', 'Appuntamento', 'dark'], ['FORMAZIONE', 'Formazione', 'blue'], ['PERSONALE', 'Documenti personale', 'blue'], ['AZIENDA', 'Documenti azienda', 'purple'], ['ASSICURAZIONE', 'Assicurazioni', 'teal'], ['INCASSO', 'Incassi', 'green'], ['PAGAMENTO', 'Pagamento', 'green'], ['SICUREZZA', 'Sicurezza cantiere', 'amber'], ['COMMESSA', 'Documenti commessa', 'amber'], ['DOCUMENTALE', 'Documentale', 'purple'], ['MEZZO', 'Mezzi', 'gray'], ['ALTRO', 'Altro', 'gray']];
 
 const DEFAULT_ITER = [
   { codice: 'PREVENTIVO', nome: 'Preventivo', voci: ['Sopralluogo e rilievo', 'Computo e offerta economica', 'Invio al cliente'] },
@@ -703,7 +703,11 @@ function eventi() {
     (c.documentiAmm || []).forEach((x) => push(x.scadenza, 'COMMESSA', (x.titolo || lab(TIPI_DOC_COMM, x.tipo)) + ' ' + c.codice, c.titolo, { r: 'commessa', id: c.id, tab: 'economia' }));
   });
   D('verbali').concat(D('riservato').filter((x) => x.kind === 'verbale')).forEach((v) => (v.azioni || []).forEach((a) => { if (a.stato !== 'CHIUSA') push(a.scadenza, 'ALTRO', a.descrizione, 'Azione da verbale · ' + (a.responsabile || ''), { r: 'documentale' }); }));
-  D('scadenze').forEach((x) => { if (x.stato !== 'CHIUSA') push(x.data, x.tipo || 'ALTRO', (x.ora ? x.ora + ' · ' : '') + x.titolo, x.note || '', { r: 'scadenzario', id: x.id }); });
+  D('scadenze').forEach((x) => {
+    if (x.stato === 'CHIUSA') return;
+    const sub = x.tipo === 'PAGAMENTO' ? [x.importo ? eur(x.importo) : '', x.modalita ? lab(MODALITA, x.modalita) : '', x.note || ''].filter(Boolean).join(' · ') : (x.note || '');
+    push(x.data, x.tipo || 'ALTRO', (x.ora ? x.ora + ' · ' : '') + x.titolo, sub, { r: 'scadenzario', id: x.id });
+  });
   tuttiDoc().forEach((x) => push(x.scadenza, 'DOCUMENTALE', x.titolo, catPath(x.categoriaId), { r: 'documentale' }));
   return ev.sort((a, b) => a.data.localeCompare(b.data));
 }
@@ -1272,20 +1276,24 @@ function vScadenzario() {
   cal += '</div>';
   const lista = ev.filter((e) => diff(e.data, t) >= -30 && diff(e.data, t) <= 60);
   const appunt = lista.filter((e) => e.tipo === 'APPUNTAMENTO'), scad = lista.filter((e) => e.tipo !== 'APPUNTAMENTO');
-  const rigaEv = (e) => '<div class="blk"><div style="flex:1;min-width:0"><button class="lnk" data-a="goRef" data-r="' + esc(e.ref ? e.ref.r : 'scadenzario') + '" data-id="' + esc(e.ref && e.ref.id || '') + '" data-tab="' + esc(e.ref && e.ref.tab || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div>' + bd(lab(TIPI_SCAD, e.tipo), tone(TIPI_SCAD, e.tipo)) + '</div><div style="text-align:right">' + scadBadge(e.data) + '<div class="small muted">' + esc(fmtD(e.data)) + '</div></div></div>';
+  const rigaEv = (e) => '<div class="blk"><div style="flex:1;min-width:0"><button class="lnk" data-a="goRef" data-r="' + esc(e.ref ? e.ref.r : 'scadenzario') + '" data-id="' + esc(e.ref && e.ref.id || '') + '" data-tab="' + esc(e.ref && e.ref.tab || '') + '">' + esc(e.titolo) + '</button><div class="small muted">' + esc(e.sub) + '</div>' + bd(lab(TIPI_SCAD, e.tipo), tone(TIPI_SCAD, e.tipo)) + '</div><div style="text-align:right">' + scadBadge(e.data) + '<div class="small muted">' + esc(fmtD(e.data)) + '</div></div>' + (e.tipo === 'PAGAMENTO' && e.ref && e.ref.r === 'scadenzario' && e.ref.id ? '<div style="margin-left:8px"><button class="btn sm p" data-a="scadPagato" data-id="' + esc(e.ref.id) + '">Pagato</button></div>' : '') + '</div>';
   const appuntHtml = appunt.length ? appunt.map(rigaEv).join('') : '<div class="empty">Nessun appuntamento in questo periodo.</div>';
   const scadHtml = scad.length ? scad.map(rigaEv).join('') : '<div class="empty">Nessuna scadenza in questo periodo.</div>';
   const filtri = '<div class="fbar"><select data-c="ftipo" aria-label="Tipo di scadenza"><option value="">Tutti i tipi</option>' + TIPI_SCAD.map((x) => '<option value="' + x[0] + '"' + (S.ftipo === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>').join('') + '</select></div>';
-  return pageHead('Calendario', 'Formazione, DURC, assicurazioni, mezzi, sicurezza di cantiere, incassi, scadenze e appuntamenti in un solo calendario.', '<button class="btn p" data-a="scadNew" data-tipo="APPUNTAMENTO">+ Appuntamento</button><button class="btn" data-a="scadNew">+ Scadenza</button>') + filtri +
+  return pageHead('Calendario', 'Formazione, DURC, assicurazioni, mezzi, sicurezza di cantiere, incassi, scadenze e appuntamenti in un solo calendario.', '<button class="btn p" data-a="scadNew" data-tipo="APPUNTAMENTO">+ Appuntamento</button><button class="btn" data-a="scadNew" data-tipo="PAGAMENTO">+ Pagamento</button><button class="btn" data-a="scadNew">+ Scadenza</button>') + filtri +
     '<div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)"><div class="card"><div class="ch"><div class="row"><button class="btn sm" data-a="calNav" data-n="-1" aria-label="Mese precedente">‹</button><h2 style="min-width:170px;text-align:center">' + MESI[S.calM] + ' ' + S.calY + '</h2><button class="btn sm" data-a="calNav" data-n="1" aria-label="Mese successivo">›</button></div><button class="btn sm" data-a="calToday">Oggi</button></div>' + cal + '</div><div class="stack">' + card('Appuntamenti (da 30 giorni fa a 60 giorni)', appuntHtml) + card('Scadenze (da 30 giorni fa a 60 giorni)', scadHtml) + '</div></div>';
 }
 C.ftipo = (d, v) => { S.ftipo = v; queueRender(); };
 A.calNav = (d) => { const x = new Date(S.calY, S.calM + (+d.n), 1); S.calY = x.getFullYear(); S.calM = x.getMonth(); queueRender(); };
 A.calToday = () => { const x = new Date(); S.calY = x.getFullYear(); S.calM = x.getMonth(); queueRender(); };
-const scadFields = () => [{ k: 'titolo', l: 'Titolo', req: true }, { k: 'data', l: 'Data', t: 'date', req: true, half: true }, { k: 'ora', l: 'Ora (facoltativa)', t: 'time', half: true }, { k: 'tipo', l: 'Tipo', t: 'select', half: true, opts: TIPI_SCAD.map((x) => [x[0], x[1]]) }, { k: 'stato', l: 'Stato', t: 'select', half: true, opts: [['APERTA', 'Aperta'], ['CHIUSA', 'Completata']] }, { k: 'note', l: 'Note', t: 'textarea' }];
-A.scadNew = (d) => { const tipo = (d && d.tipo) || 'ALTRO'; openForm({ title: tipo === 'APPUNTAMENTO' ? 'Nuovo appuntamento' : 'Nuova scadenza', fields: scadFields(), values: { tipo: tipo, stato: 'APERTA', data: today() }, onSave: (v) => put('scadenze', newId('scadenze'), v) }); };
-function scadEdit(id) { const x = G('scadenze', id); if (!x) return; openForm({ title: 'Scadenza', fields: scadFields(), values: x, onSave: (v) => patch('scadenze', id, v), onDelete: () => remove('scadenze', id) }); }
+const scadFields = (tipo) => [{ k: 'titolo', l: 'Titolo', req: true }, { k: 'data', l: 'Data', t: 'date', req: true, half: true }, { k: 'ora', l: 'Ora (facoltativa)', t: 'time', half: true }, { k: 'tipo', l: 'Tipo', t: 'select', half: true, opts: TIPI_SCAD.map((x) => [x[0], x[1]]) }, { k: 'stato', l: 'Stato', t: 'select', half: true, opts: tipo === 'PAGAMENTO' ? [['APERTA', 'Da pagare'], ['CHIUSA', 'Pagato']] : [['APERTA', 'Aperta'], ['CHIUSA', 'Completata']] }].concat(tipo === 'PAGAMENTO' ? [{ k: 'importo', l: 'Importo (€)', t: 'number', half: true }, { k: 'modalita', l: 'Modalità di pagamento', t: 'select', half: true, opts: MODALITA }] : []).concat([{ k: 'note', l: 'Note', t: 'textarea' }]);
+A.scadNew = (d) => { const tipo = (d && d.tipo) || 'ALTRO'; openForm({ title: tipo === 'APPUNTAMENTO' ? 'Nuovo appuntamento' : tipo === 'PAGAMENTO' ? 'Nuovo pagamento' : 'Nuova scadenza', fields: scadFields(tipo), values: { tipo: tipo, stato: 'APERTA', data: today() }, onSave: (v) => put('scadenze', newId('scadenze'), v) }); };
+function scadEdit(id) { const x = G('scadenze', id); if (!x) return; openForm({ title: x.tipo === 'PAGAMENTO' ? 'Pagamento' : 'Scadenza', fields: scadFields(x.tipo), values: x, onSave: (v) => patch('scadenze', id, v), onDelete: () => remove('scadenze', id) }); }
 A.goRef = (d) => { if (d.r === 'scadenzario' && d.id) return scadEdit(d.id); go(d.r, d.id || null, d.tab || null); };
+A.scadPagato = async (d) => {
+  try { await patch('scadenze', d.id, { stato: 'CHIUSA' }); toast('Segnato come pagato.'); }
+  catch (e) { toast(errMsg(e), 'err'); }
+};
 
 /* ---------- clienti ---------- */
 let clienteFields = () => [{ k: 'ragioneSociale', l: 'Ragione sociale', req: true }, { k: 'piva', l: 'Partita IVA', half: true }, { k: 'referente', l: 'Referente', half: true }, { k: 'indirizzo', l: 'Indirizzo' }, { k: 'citta', l: 'Città', half: true }, { k: 'provincia', l: 'Provincia', half: true }, { k: 'telefono', l: 'Telefono', half: true }, { k: 'email', l: 'Email', half: true }, { k: 'pec', l: 'PEC' }, { k: 'note', l: 'Note', t: 'textarea' }];
