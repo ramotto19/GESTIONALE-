@@ -2288,6 +2288,32 @@ async function whoami(force) {
   return WHOAMI_CACHE;
 }
 
+/* ---------- apertura istantanea: ultima istantanea dei dati salvata nel browser ---------- */
+/* Solo per mostrare subito qualcosa all'apertura, invece di uno schermo "in caricamento"
+   vuoto finché whoami+listAll non rispondono: whoami e listAll partono comunque SEMPRE in
+   parallelo (vedi boot()) e sovrascrivono questa anteprima non appena arrivano, quindi anche
+   su un computer condiviso dove nel frattempo ha fatto accesso un'altra persona la vista
+   corretta compare da sola in un istante, senza che questa cache sia mai l'unica fonte dei
+   dati veri. La chiave è l'email di chi ha avuto l'accesso l'ultima volta su QUESTO browser
+   (letta dal token Google salvato, senza bisogno di una chiamata di rete): così chi usa un
+   altro account su un computer condiviso non vede nemmeno per un istante l'anteprima di
+   qualcun altro. */
+const BOOT_CACHE_PREFIX = 'gestionale-impianti:boot-cache:';
+function decodeJwtEmail(token) {
+  try {
+    const payload = JSON.parse(decodeURIComponent(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')).split('').map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')));
+    return String(payload.email || '').toLowerCase();
+  } catch (e) { return ''; }
+}
+function loadBootCache(email) {
+  if (!email) return null;
+  try { const raw = localStorage.getItem(BOOT_CACHE_PREFIX + email); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+function saveBootCache(email, data) {
+  if (!email) return;
+  try { localStorage.setItem(BOOT_CACHE_PREFIX + email, JSON.stringify(data)); } catch (e) { /* storage pieno o non disponibile: pazienza, è solo una cache */ }
+}
+
 /* un'unica chiamata "listAll" per ogni ciclo di polling, smistata ai listener per collezione registrati da subscribe() */
 /* intervallo di polling: più alto = meno chiamate al backend (la quota giornaliera di Apps
    Script non è infinita), a scapito di una sincronizzazione leggermente meno immediata */
@@ -2793,6 +2819,10 @@ function loadSavedToken() { try { return localStorage.getItem(TOKEN_KEY); } catc
 function clearSavedToken() { try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignora */ } }
 
 window.__logout = () => {
+  /* tolta anche l'anteprima di apertura istantanea di questo account: su un computer condiviso
+     non deve restare leggibile da chi accede dopo di noi (chi accede con lo stesso account la
+     ritrova comunque dopo il primo aggiornamento riuscito, come sempre). */
+  if (S.uid) { try { localStorage.removeItem(BOOT_CACHE_PREFIX + S.uid); } catch (e) { /* ignora */ } }
   ID_TOKEN = null; WHOAMI_CACHE = null; stopPoll(); clearSavedToken(); clearSavedDriveToken();
   try { if (window.google && window.google.accounts && window.google.accounts.id) window.google.accounts.id.disableAutoSelect(); } catch (e) { /* ignora */ }
   S.route = 'dashboard'; S.id = null; S.tab = null; S.data = {}; S.loaded = {}; S.admin = false; S.me = ''; S.uid = null; S.unauthorized = false; S.pendingEmail = ''; S.offline = false; S.late = false; S.syncTrouble = false; pollFailStreak = 0;
@@ -3204,6 +3234,22 @@ async function boot() {
      collezioni servono, ma il server lo capisce comunque dal token, quindi non serve
      aspettare la risposta di whoami prima di chiedere anche i dati. */
   const prefetch = api('listAll').catch(() => null);
+  /* anteprima istantanea dall'ultima apertura riuscita su questo browser (vedi la nota sopra
+     loadBootCache): mostra subito qualcosa invece di uno schermo "in caricamento" vuoto, ma
+     non è mai l'unica fonte dei dati — whoami+listAll proseguono comunque sotto e la
+     sovrascrivono non appena rispondono. */
+  const cached = loadBootCache(decodeJwtEmail(ID_TOKEN));
+  if (cached && cached.cols) {
+    S.admin = !!cached.admin; S.me = cached.me || ''; S.uid = cached.uid || null;
+    if (!S.admin) S.route = 'mieore';
+    Object.keys(cached.cols).forEach((col) => {
+      const src = cached.cols[col] || {}, m = {};
+      Object.keys(src).forEach((id) => { m[id] = Object.assign({}, src[id], { id: id }); });
+      S.data[col] = m; S.loaded[col] = true;
+    });
+    if (cached.cols.impostazioni) applyConfig();
+    queueRender();
+  }
   let w;
   try { w = await whoami(); } catch (e) { if (!e.transient) clearSavedToken(); ID_TOKEN = null; showLogin(e.transient ? 'Il server non risponde al momento. Riprova tra qualche istante.' : (e.message || 'Accesso non riuscito.')); return; }
   if (w.unauthorized) { S.unauthorized = true; S.pendingEmail = w.email; render(); return; }
@@ -3212,7 +3258,7 @@ async function boot() {
   S.mese = meseOggi();
   setTimeout(() => { S.late = true; queueRender(); }, 6000);
   const pref = await prefetch;
-  if (pref && pref.ok) { pollCache = pref.cols || {}; skipFirstPoll = true; }
+  if (pref && pref.ok) { pollCache = pref.cols || {}; skipFirstPoll = true; saveBootCache(w.email, { admin: S.admin, me: S.me, uid: w.email, cols: pollCache }); }
   if (S.admin) COLS.forEach(subscribe); else { S.route = 'mieore'; subscribeUser(); }
   if (S.uid) watchMio(S.mese);
   /* senza questa guardia (come già per __tokenRefreshTimer sotto), ogni volta che boot() viene
