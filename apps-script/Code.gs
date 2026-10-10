@@ -374,6 +374,8 @@ function raccogliRiferimentiFile() {
   var nomeD = function (d) { return (d.cognome || '') + ' ' + (d.nome || ''); };
   var mezzoLabel = function (m) { return m.descrizione + (m.targa ? ' ' + m.targa : ''); };
   var mezzoCartella = function (tipo) { return tipo === 'ATTREZZATURA' ? 'Attrezzature' : 'Mezzi'; };
+  var TIPI_DOC_TEC = ['PROGETTO', 'VALUTAZIONE_ENERGETICA', 'BOLLETTA_CLIENTE', 'SCHEDA_TECNICA'];
+  var docCommCartella = function (tipo) { return TIPI_DOC_TEC.indexOf(tipo) >= 0 ? 'Documentazione tecnica' : 'Documentazione amministrativa'; };
   var catPath = function (id) {
     var c = categorie[id]; if (!c) return '';
     var p = c.parentId && categorie[c.parentId];
@@ -390,7 +392,7 @@ function raccogliRiferimentiFile() {
   Object.keys(commesse).forEach(function (id) {
     var c = commesse[id], lab = ['Commesse', commessaLabel(c)];
     (c.sicurezza || []).forEach(function (s) { if (s.file) add(s.file, lab.concat('Sicurezza')); });
-    (c.documentiAmm || []).forEach(function (x) { if (x.file) add(x.file, lab.concat('Documentazione amministrativa')); });
+    (c.documentiAmm || []).forEach(function (x) { if (x.file) add(x.file, lab.concat(docCommCartella(x.tipo))); });
     (c.fotoSopralluogo || []).forEach(function (f) { add(f, lab.concat('Foto sopralluogo')); });
     (c.fotoInstallazione || []).forEach(function (f) { add(f, lab.concat('Foto installazione')); });
     (campiCfg.commesse || []).forEach(function (cf) { if (cf.t === 'file' && c[cf.k]) add(c[cf.k], lab); });
