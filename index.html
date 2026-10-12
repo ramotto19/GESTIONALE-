@@ -177,6 +177,9 @@ const monday = (s) => { const d = parseD(s); d.setDate(d.getDate() - ((d.getDay(
 const fmtD = (s) => (s ? String(s).split('-').reverse().join('/') : '');
 const MESI3 = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
 const MESI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
+const GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+/* "lunedì 12 ottobre", usata come sottotitolo della Home al posto della vecchia descrizione */
+const dataLunga = (iso) => { const d = parseD(iso); return GIORNI[d.getDay()] + ' ' + d.getDate() + ' ' + MESI[d.getMonth()].toLowerCase(); };
 const fmtShort = (s) => { if (!s) return ''; const d = parseD(s); return d.getDate() + ' ' + MESI3[d.getMonth()]; };
 const eur = (n) => '€\u00a0' + Math.round(Number(n) || 0).toLocaleString('it-IT');
 const num = (v) => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? 0 : n; };
@@ -834,9 +837,8 @@ function vDashboard() {
   const wk = monday(t), libere = D('squadre').filter((s) => !D('assegnazioni').some((a) => a.squadraId === s.id && a.settimana === wk));
   const bl = bloccati(), scadute = prox.filter((e) => e.data < t).length;
   const vuoto = !cs.length && !D('clienti').length;
-  let h = pageHead('Home', 'Commesse, scadenze e squadre in un colpo d\u2019occhio.', '<button class="btn p" data-a="newC">Nuova commessa</button>');
+  let h = pageHead(saluto() + ', I-Energy', dataLunga(t), '<button class="btn p" data-a="newC">Nuova commessa</button>');
   const hq = S.hq.trim();
-  h += '<div style="font:600 22px/1.2 \'Barlow Condensed\',sans-serif;margin-bottom:10px">' + esc(saluto() + ', I-Energy') + '</div>';
   h += '<div class="fbar"><input id="hq" data-in="hq" placeholder="Cerca commesse, clienti, dipendenti, mezzi, documenti\u2026" aria-label="Cerca in tutto il gestionale" value="' + esc(S.hq) + '" style="width:100%;max-width:480px"></div>';
   if (hq.length >= 2) {
     const ris = ricercaGlobale(hq);
