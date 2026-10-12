@@ -186,7 +186,7 @@ const byStr = (f) => (a, b) => String(f(a) || '').localeCompare(String(f(b) || '
 
 /* ---------- stato ---------- */
 const COLS = ['clienti', 'commesse', 'dipendenti', 'squadre', 'assegnazioni', 'assegnazioniG', 'tipiLavoro', 'categorie', 'docAzienda', 'assicurazioni', 'mezzi', 'documenti', 'verbali', 'scadenze', 'riservato', 'accessi', 'impostazioni', 'commesseElenco', 'registri'];
-const S = { route: 'dashboard', id: null, tab: null, q: '', fstato: '', week: null, calY: null, calM: null, ftipo: '', dcat: '', ptab: 'dipendenti', atab: 'documenti', data: {}, loaded: {}, admin: false, me: '', uid: null, late: false, offline: false, syncTrouble: false, mese: null, otab: 'riepilogo', opers: null, myOre: { mese: null, righe: [], loaded: false }, oreAll: {}, oreLoading: false, prof: {} };
+const S = { route: 'dashboard', id: null, tab: null, q: '', hq: '', fstato: '', week: null, calY: null, calM: null, ftipo: '', dcat: '', ptab: 'dipendenti', atab: 'documenti', data: {}, loaded: {}, admin: false, me: '', uid: null, late: false, offline: false, syncTrouble: false, mese: null, otab: 'riepilogo', opers: null, myOre: { mese: null, righe: [], loaded: false }, oreAll: {}, oreLoading: false, prof: {} };
 const D = (c) => Object.values(S.data[c] || {});
 const G = (c, id) => (S.data[c] || {})[id];
 let db = null, assets = null, user = null, dl = null;
@@ -306,7 +306,7 @@ async function submitForm() {
     let v;
     if (t === 'checkbox') v = !!(el && el.checked);
     else if (t === 'multi') {
-      /* una voce già salvata ma non più tra le opzioni mostrate (es. cancellata da Personalizza
+      /* una voce già salvata ma non più tra le opzioni mostrate (es. cancellata da Impostazioni
          → Elenchi, o esclusa a priori come "Altro") non ha una casella da spuntare: ricostruire
          il valore SOLO dalle caselle spuntate la perdeva per sempre al primo salvataggio
          successivo, anche solo per cambiare un altro campo del modulo. Le voci così "orfane"
@@ -741,10 +741,10 @@ function bloccati() {
 }
 /* ---------- struttura ---------- */
 const A = {}, C = {}, I = {};
-const NAV = [['dashboard', 'Dashboard'], ['commesse', 'Commesse'], ['iter', 'Iter commesse'], ['planning', 'Planning'], ['scadenzario', 'Calendario'], ['clienti', 'Clienti'], ['personale', 'Personale'], ['azienda', 'Azienda'], ['documentale', 'Documentale']];
-const navItems = () => (S.admin ? NAV.concat(regs().map((r) => ['reg', r.nome, r.id]), [['ore', 'Ore del personale'], ['mieore', 'Registro ore'], ['editor', 'Personalizza']]) : [['mieore', 'Le mie ore'], ['miidoc', 'I miei documenti'], ['planning', 'Planning']]);
+const NAV = [['dashboard', 'Home'], ['commesse', 'Commesse'], ['iter', 'Iter commesse'], ['planning', 'Planning'], ['scadenzario', 'Calendario'], ['clienti', 'Clienti'], ['personale', 'Personale'], ['azienda', 'Azienda'], ['documentale', 'Documentale']];
+const navItems = () => (S.admin ? NAV.concat(regs().map((r) => ['reg', r.nome, r.id]), [['ore', 'Ore del personale'], ['mieore', 'Registro ore'], ['editor', 'Impostazioni']]) : [['mieore', 'Le mie ore'], ['miidoc', 'I miei documenti'], ['planning', 'Planning']]);
 /* un'icona per voce di menu, solo per orientarsi più in fretta: le voci "reg" (i registri
-   personalizzati creati da Personalizza, il cui nome non è noto in anticipo) usano tutte
+   personalizzati creati da Impostazioni, il cui nome non è noto in anticipo) usano tutte
    l'icona di riserva "libro". */
 const NAV_ICONS = {
   dashboard: '<path d="M3 10l9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 21V12h6v9"/>',
@@ -802,6 +802,28 @@ const pageHead = (title, sub, actions) => '<div class="hd"><div><h1>' + esc(titl
 const accountHint = () => '<p class="muted" style="margin-top:10px">Sei entrato come <b>' + esc(S.me || '') + '</b> (' + esc(S.uid || '') + '). Controlla che l’amministrazione abbia collegato esattamente questo indirizzo da «Ore del personale › Accessi» — se lì risulta un indirizzo anche solo leggermente diverso (es. un punto, un dominio, maiuscole/minuscole), l’app non lo riconosce come collegato.</p>';
 const kpi = (l, v, n) => '<div class="card kpi"><div class="l">' + esc(l) + '</div><div class="v">' + esc(v) + '</div><div class="n">' + esc(n || '') + '</div></div>';
 
+/* ricerca unica su tutte le collezioni principali, usata dalla barra di ricerca in Home:
+   si ferma da sola a 40 risultati per non appesantire la pagina (per un'azienda di queste
+   dimensioni non serve comunque vederne più di qualche decina insieme). Ogni risultato porta
+   già scritto sopra quale azione usare per aprire lo stesso identico modulo che si aprirebbe
+   cliccando quella riga nella sua pagina normale (cliEdit, docEdit coi suoi col, ecc.) invece
+   di inventare un secondo modo di aprire le stesse schede. */
+function ricercaGlobale(q) {
+  q = String(q || '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  const hit = (...vals) => vals.some((v) => String(v || '').toLowerCase().includes(q));
+  const out = [];
+  D('commesse').forEach((c) => { if (hit(c.codice, c.titolo, clienteNome(c.clienteId), c.citta)) out.push({ tipo: 'Commessa', titolo: (c.codice || '') + ' · ' + (c.titolo || ''), sub: [clienteNome(c.clienteId), c.citta].filter(Boolean).join(' · '), a: 'goRef', r: 'commessa', id: c.id }); });
+  D('clienti').forEach((c) => { if (hit(c.ragioneSociale, c.piva, c.citta)) out.push({ tipo: 'Cliente', titolo: c.ragioneSociale, sub: c.citta || '', a: 'cliEdit', id: c.id }); });
+  D('dipendenti').forEach((d) => { if (hit(nomeD(d), d.mansione)) out.push({ tipo: 'Dipendente', titolo: nomeD(d), sub: d.mansione || '', a: 'goRef', r: 'dipendente', id: d.id }); });
+  D('mezzi').forEach((m) => { if (hit(m.descrizione, m.targa)) out.push({ tipo: 'Mezzo', titolo: m.descrizione, sub: m.targa || '', a: 'goRef', r: 'mezzo', id: m.id }); });
+  D('docAzienda').forEach((x) => { if (hit(x.titolo, lab(TIPI_DOC_AZ, x.tipo), x.ente)) out.push({ tipo: 'Documento azienda', titolo: x.titolo || lab(TIPI_DOC_AZ, x.tipo), sub: x.ente || '', a: 'daEdit', id: x.id }); });
+  D('assicurazioni').forEach((x) => { if (hit(lab(TIPI_ASS, x.tipo), x.compagnia, x.numeroPolizza)) out.push({ tipo: 'Assicurazione', titolo: lab(TIPI_ASS, x.tipo), sub: x.compagnia || '', a: 'assEdit', id: x.id }); });
+  tuttiDoc().forEach((x) => { if (hit(x.titolo, catPath(x.categoriaId))) out.push({ tipo: 'Documento', titolo: x.titolo, sub: catPath(x.categoriaId) || '', a: 'docEdit', id: x.id, col: colDoc(x) }); });
+  D('verbali').concat(S.admin ? D('riservato').filter((x) => x.kind === 'verbale') : []).forEach((v) => { if (hit(v.oggetto)) out.push({ tipo: 'Verbale', titolo: v.oggetto, sub: fmtD(v.data), a: 'verbEditF', id: v.id, col: (G('riservato', v.id) ? 'riservato' : 'verbali') }); });
+  D('scadenze').forEach((x) => { if (hit(x.titolo, x.note)) out.push({ tipo: 'Scadenza', titolo: x.titolo, sub: fmtD(x.data), a: 'goRef', r: 'scadenzario', id: x.id }); });
+  return out.slice(0, 40);
+}
 /* ---------- dashboard ---------- */
 function vDashboard() {
   const t = today(), cs = D('commesse'), att = cs.filter((c) => ATTIVE.includes(c.stato));
@@ -811,7 +833,14 @@ function vDashboard() {
   const wk = monday(t), libere = D('squadre').filter((s) => !D('assegnazioni').some((a) => a.squadraId === s.id && a.settimana === wk));
   const bl = bloccati(), scadute = prox.filter((e) => e.data < t).length;
   const vuoto = !cs.length && !D('clienti').length;
-  let h = pageHead('Dashboard', 'Commesse, scadenze e squadre in un colpo d\u2019occhio.', '<button class="btn p" data-a="newC">Nuova commessa</button>');
+  let h = pageHead('Home', 'Commesse, scadenze e squadre in un colpo d\u2019occhio.', '<button class="btn p" data-a="newC">Nuova commessa</button>');
+  const hq = S.hq.trim();
+  h += '<div class="fbar"><input id="hq" data-in="hq" placeholder="Cerca commesse, clienti, dipendenti, mezzi, documenti\u2026" aria-label="Cerca in tutto il gestionale" value="' + esc(S.hq) + '" style="width:100%;max-width:480px"></div>';
+  if (hq.length >= 2) {
+    const ris = ricercaGlobale(hq);
+    const risHtml = ris.length ? ris.map((r) => '<div class="blk"><div style="flex:1"><button class="lnk" data-a="' + r.a + '" data-id="' + esc(r.id) + '"' + (r.r ? ' data-r="' + r.r + '"' : '') + (r.col ? ' data-col="' + r.col + '"' : '') + '>' + esc(r.titolo) + '</button>' + (r.sub ? '<div class="small muted">' + esc(r.sub) + '</div>' : '') + '</div>' + bd(r.tipo, 'grey') + '</div>').join('') : '<div class="empty">Nessun risultato per \u00ab' + esc(hq) + '\u00bb.</div>';
+    return h + card('Risultati della ricerca' + (ris.length ? ' (' + ris.length + ')' : ''), risHtml);
+  }
   if (vuoto) {
     h += '<section class="card" style="margin-bottom:16px"><h2>Per iniziare</h2><div class="blk"><span class="dot">1</span><div><b>Azienda</b>: inserisci DURC, visura, polizze e mezzi. <button class="lnk" data-a="go" data-r="azienda">Vai ad Azienda</button></div></div><div class="blk"><span class="dot">2</span><div><b>Personale</b>: dipendenti, formazione e squadre. <button class="lnk" data-a="go" data-r="personale">Vai a Personale</button></div></div><div class="blk"><span class="dot">3</span><div><b>Clienti</b> e poi la prima <b>commessa</b>: l\u2019iter parte da solo. <button class="lnk" data-a="go" data-r="clienti">Vai a Clienti</button></div></div></section>';
   }
@@ -841,6 +870,7 @@ function vCommesse() {
   return pageHead('Commesse', 'Ogni commessa collega cliente, cantiere, iter, sicurezza, incassi e squadre.', '<button class="btn p" data-a="newC">Nuova commessa</button>') + filtri + '<div class="card">' + t + '</div>';
 }
 I.q = (d, v) => { S.q = v; queueRender(); };
+I.hq = (d, v) => { S.hq = v; queueRender(); };
 C.fstato = (d, v) => { S.fstato = v; queueRender(); };
 A.openC = (d) => go('commessa', d.id, 'panoramica');
 A.go = (d) => go(d.r, d.id || null);
@@ -967,7 +997,7 @@ async function iterPassMove(d, dir) {
 A.iterPassUp = (d) => iterPassMove(d, -1);
 A.iterPassDown = (d) => iterPassMove(d, 1);
 /* aggiunge a una commessa già esistente un passaggio del modello che non aveva ancora (es. un
-   passaggio introdotto in Personalizza dopo la creazione della commessa), inserendolo nella
+   passaggio introdotto in Impostazioni dopo la creazione della commessa), inserendolo nella
    posizione che ha nel modello rispetto ai passaggi già presenti, non sempre in fondo */
 A.iterPassAdd = (d) => {
   const c = G('commesse', d.id), disp = iterDisponibili(), mancano = disp.filter((s) => !(c.iter || []).some((x) => x.codice === s.codice));
@@ -1398,7 +1428,7 @@ function vAzienda() {
 }
 A.atab = (d) => { S.atab = d.t; queueRender(); };
 
-const docAzFields = () => [{ k: 'tipo', l: 'Tipo di documento', t: 'select', req: true, opts: TIPI_DOC_AZ.map((x) => [x[0], x[1]]) }, { k: 'titolo', l: 'Titolo (facoltativo)' }, { k: 'ente', l: 'Ente emittente', half: true }, { k: 'numero', l: 'Numero', half: true }, { k: 'dataEmissione', l: 'Emissione', t: 'date', half: true }, { k: 'dataScadenza', l: 'Scadenza', t: 'date', half: true, hint: 'Se la lasci vuota e il tipo di documento ha una validità indicativa impostata (Personalizza → Elenchi), viene proposta da sola.' }, { k: 'file', l: 'File', t: 'file' }, { k: 'note', l: 'Note', t: 'textarea' }];
+const docAzFields = () => [{ k: 'tipo', l: 'Tipo di documento', t: 'select', req: true, opts: TIPI_DOC_AZ.map((x) => [x[0], x[1]]) }, { k: 'titolo', l: 'Titolo (facoltativo)' }, { k: 'ente', l: 'Ente emittente', half: true }, { k: 'numero', l: 'Numero', half: true }, { k: 'dataEmissione', l: 'Emissione', t: 'date', half: true }, { k: 'dataScadenza', l: 'Scadenza', t: 'date', half: true, hint: 'Se la lasci vuota e il tipo di documento ha una validità indicativa impostata (Impostazioni → Elenchi), viene proposta da sola.' }, { k: 'file', l: 'File', t: 'file' }, { k: 'note', l: 'Note', t: 'textarea' }];
 const docAzMap = (it) => { if (!it.dataScadenza && it.dataEmissione) { const m = (TIPI_DOC_AZ.find((x) => x[0] === it.tipo) || [])[2]; if (m) it.dataScadenza = addMonths(it.dataEmissione, m); } return it; };
 function aDocumenti() {
   const durc = docAzOk('DURC', today());
@@ -1978,7 +2008,7 @@ async function runSync() {
     if (syncAgain) { syncAgain = false; maybeSync(); }
   }
 }
-/* ---------- Personalizza: pagine, campi, categorie, iter ed elenchi modificabili dall'app ---------- */
+/* ---------- Impostazioni: pagine, campi, categorie, iter ed elenchi modificabili dall'app ---------- */
 const CFG = (id) => G('impostazioni', id) || {};
 const slug = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'voce';
 const uniq = (base, taken) => { let k = base, n = 2; while (taken.includes(k)) k = base + '_' + n++; return k; };
@@ -2045,12 +2075,12 @@ function regEventi() {
 
 function vReg() {
   const def = regDef(S.id);
-  if (!def) return '<div class="empty">Pagina non trovata. <button class="lnk" data-a="go" data-r="editor">Vai a Personalizza</button></div>';
+  if (!def) return '<div class="empty">Pagina non trovata. <button class="lnk" data-a="go" data-r="editor">Vai a Impostazioni</button></div>';
   const q = S.q.toLowerCase(), cs = def.campi || [], dataC = cs.find((c) => c.t === 'data');
   const rows = D('registri').filter((x) => x.reg === def.id && (!q || cs.some((c) => valTesto(c, x[c.k]).toLowerCase().includes(q)))).sort((a, b) => (dataC ? String(b[dataC.k] || '').localeCompare(String(a[dataC.k] || '')) : String(b.creatoIl || '').localeCompare(String(a.creatoIl || ''))));
   const act = (cs.length ? '<button class="btn" data-a="regCsv" data-r="' + esc(def.id) + '">Esporta CSV</button><button class="btn p" data-a="regNew" data-r="' + esc(def.id) + '">+ Nuovo</button>' : '') + '<button class="btn" data-a="edGo" data-r="' + esc(def.id) + '">Modifica pagina</button>';
   let body;
-  if (!cs.length) body = '<div class="card"><h2>Questa pagina non ha ancora campi</h2><p class="muted">Aggiungi i campi da Personalizza › Pagine, poi potrai inserire le righe.</p></div>';
+  if (!cs.length) body = '<div class="card"><h2>Questa pagina non ha ancora campi</h2><p class="muted">Aggiungi i campi da Impostazioni › Pagine, poi potrai inserire le righe.</p></div>';
   else body = '<div class="fbar"><input id="q" data-in="q" placeholder="Cerca" aria-label="Cerca" value="' + esc(S.q) + '"></div><section class="card">' + tbl(cs.slice(0, 7).map((c) => ({ h: c.l, f: (x) => (c.scad && c.t === 'data' && x[c.k] ? scadBadge(x[c.k]) : valCampo(c, x[c.k]) || '<span class="muted">—</span>') })), rows, { empty: 'Nessuna riga. Usa «+ Nuovo» per inserirne una.', row: (x) => 'data-a="regEdit" data-id="' + esc(x.id) + '"' }) + '</section>';
   return pageHead(def.nome, cs.length > 7 ? 'Nella tabella si vedono i primi 7 campi; apri una riga per vederli tutti.' : '', act) + body;
 }
@@ -2223,7 +2253,7 @@ A.lstNew = (d) => lstForm(d.k, null);
 A.lstEdit = (d) => lstForm(d.k, +d.i);
 A.lstDel = async (d) => { const x = LISTE[d.k][+d.i]; if (!x || !(await confirmBox('Eliminare «' + x[1] + '» dall\u2019elenco?', 'Elimina'))) return; const all = listeCorrenti(); all[d.k].splice(+d.i, 1); try { await saveListe(all); } catch (e) { /* già segnalato */ } };
 
-/* ---------- pagina Personalizza ---------- */
+/* ---------- pagina Impostazioni ---------- */
 const ED_TABS = [['pagine', 'Pagine'], ['campi', 'Campi aggiuntivi'], ['categorie', 'Categorie documenti'], ['iter', 'Iter commesse'], ['elenchi', 'Elenchi'], ['tipologie', 'Tipologie di lavoro']];
 function vEditor() {
   const tab = S.edtab || 'pagine';
@@ -2236,7 +2266,7 @@ function vEditor() {
   else if (tab === 'iter') body = edIter();
   else if (tab === 'elenchi') body = edElenchi();
   else body = edPagine();
-  return pageHead('Personalizza', 'Aggiungi pagine, campi e voci senza rifare l\u2019app: le modifiche valgono subito per tutti gli amministratori.') + tabs + body + '<p class="small muted" style="margin-top:14px">Formule, calcoli e regole nuove (come i blocchi del planning) non si possono creare da qui: si aggiungono modificando il codice dell\u2019app.</p>';
+  return pageHead('Impostazioni', 'Aggiungi pagine, campi e voci senza rifare l\u2019app: le modifiche valgono subito per tutti gli amministratori.') + tabs + body + '<p class="small muted" style="margin-top:14px">Formule, calcoli e regole nuove (come i blocchi del planning) non si possono creare da qui: si aggiungono modificando il codice dell\u2019app.</p>';
 }
 A.edtab = (d) => { if (d.t === 'tipologie') { S.atab = 'tipologie'; go('azienda'); return; } S.edtab = d.t; S.edReg = null; queueRender(); };
 A.edent = (d) => { S.edEnt = d.e; queueRender(); };
@@ -2988,7 +3018,7 @@ function subscribe(col) {
 /* la prima volta che l'amministratore arriva su Documentale senza aver ancora creato nessuna
    categoria, gliene propone alcune di base (con sottocategorie, dove si archiviano davvero i
    documenti) così può iniziare subito a caricare file invece di dover prima configurare tutto
-   da Personalizza. Se in seguito si aggiunge una nuova categoria di base a questo elenco, viene
+   da Impostazioni. Se in seguito si aggiunge una nuova categoria di base a questo elenco, viene
    creata anche per chi ha già le altre: si tiene traccia di quelle già proposte (impostazioni →
    categorieSeed) così una categoria di base che l’amministratore ha eliminato di proposito
    non torna indietro da sola al giro successivo. */
@@ -3029,7 +3059,7 @@ async function seedCategorieDefault() {
       }
     }
     await db.doc('impostazioni/categorieSeed').set({ fatte: fatte.concat(nuoviCodici) });
-    toast('Documentale: aggiunte le categorie di base ' + mancano.map((r) => r.nome).join(', ') + '. Puoi già caricare i documenti (le puoi rinominare o cambiare da Personalizza → Categorie documenti).');
+    toast('Documentale: aggiunte le categorie di base ' + mancano.map((r) => r.nome).join(', ') + '. Puoi già caricare i documenti (le puoi rinominare o cambiare da Impostazioni → Categorie documenti).');
   } catch (e) { /* se qualcosa fallisce a metà, riprova al prossimo caricamento della pagina */ }
   finally { categorieSeeding = false; }
 }
