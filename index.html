@@ -801,6 +801,7 @@ const pageHead = (title, sub, actions) => '<div class="hd"><div><h1>' + esc(titl
    entrata con un account Google diverso da quello che l'amministrazione ha effettivamente collegato */
 const accountHint = () => '<p class="muted" style="margin-top:10px">Sei entrato come <b>' + esc(S.me || '') + '</b> (' + esc(S.uid || '') + '). Controlla che l’amministrazione abbia collegato esattamente questo indirizzo da «Ore del personale › Accessi» — se lì risulta un indirizzo anche solo leggermente diverso (es. un punto, un dominio, maiuscole/minuscole), l’app non lo riconosce come collegato.</p>';
 const kpi = (l, v, n) => '<div class="card kpi"><div class="l">' + esc(l) + '</div><div class="v">' + esc(v) + '</div><div class="n">' + esc(n || '') + '</div></div>';
+const saluto = () => { const h = new Date().getHours(); return h < 12 ? 'Buongiorno' : h < 18 ? 'Buon pomeriggio' : 'Buonasera'; };
 
 /* ricerca unica su tutte le collezioni principali, usata dalla barra di ricerca in Home:
    si ferma da sola a 40 risultati per non appesantire la pagina (per un'azienda di queste
@@ -835,6 +836,7 @@ function vDashboard() {
   const vuoto = !cs.length && !D('clienti').length;
   let h = pageHead('Home', 'Commesse, scadenze e squadre in un colpo d\u2019occhio.', '<button class="btn p" data-a="newC">Nuova commessa</button>');
   const hq = S.hq.trim();
+  h += '<div style="font:600 22px/1.2 \'Barlow Condensed\',sans-serif;margin-bottom:10px">' + esc(saluto() + ', I-Energy') + '</div>';
   h += '<div class="fbar"><input id="hq" data-in="hq" placeholder="Cerca commesse, clienti, dipendenti, mezzi, documenti\u2026" aria-label="Cerca in tutto il gestionale" value="' + esc(S.hq) + '" style="width:100%;max-width:480px"></div>';
   if (hq.length >= 2) {
     const ris = ricercaGlobale(hq);
