@@ -39,3 +39,4 @@ Memoria del progetto **Gestionale Impianti**: Claude legge questo file automatic
 ## Da ricordare
 
 <!-- Aggiungi qui fatti, note e cose da non dimenticare. -->
+- 2026-10-14: controllo automatico — modificando un elemento di un elenco (pagamento, costo, abilitazione…) i campi non mostrati nel modulo (es. gli incassi) potevano tornare ai valori vecchi; ora si parte dalla versione riletta al salvataggio.

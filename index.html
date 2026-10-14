@@ -371,7 +371,11 @@ function editSub(o) {
     title: o.title, fields: o.fields, values: cur, info: o.info, wide: o.wide, folder: o.folder,
     onSave: async (v) => {
       const doc2 = clone(G(o.col, o.id)), arr2 = doc2[o.key] || [];
-      let item = Object.assign({}, cur, v);
+      /* per un elemento esistente si parte dalla versione appena riletta (se è ancora quella con lo
+         stesso id), non da quella presa all'apertura del modulo: i campi che il modulo non mostra
+         (es. gli incassi di un pagamento) non devono tornare indietro ai valori vecchi */
+      const fresco = !isNew && arr2[+o.i] && cur && cur.id && arr2[+o.i].id === cur.id ? arr2[+o.i] : cur;
+      let item = Object.assign({}, fresco, v);
       if (o.map) item = o.map(item);
       if (isNew) { item.id = uid(); arr2.push(item); } else arr2[+o.i] = item;
       doc2[o.key] = arr2;
