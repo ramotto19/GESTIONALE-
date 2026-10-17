@@ -2453,12 +2453,17 @@ async function pollOnce() {
    setInterval a orario fisso: se il backend è lento e una listAll impiega più di POLL_MS,
    un timer fisso avrebbe accumulato richieste una sopra l'altra, intasando il backend. */
 let pollRunning = false;
+let pollGen = 0;
 let skipFirstPoll = false;
 function ensurePoll() {
   if (pollTimer) return;
   pollTimer = true;
+  /* ogni ciclo ricorda il proprio numero: se si esce e si rientra prima che il vecchio ciclo si
+     risvegli dalla pausa, pollTimer è di nuovo attivo e senza questo controllo il vecchio ciclo
+     continuerebbe insieme al nuovo (richieste doppie, una in più ad ogni uscita+rientro rapidi) */
+  const gen = ++pollGen;
   (async function loop() {
-    while (pollTimer) {
+    while (pollTimer && gen === pollGen) {
       /* con la scheda/app in background non si interroga il backend: su telefono può restare
          aperta per ore senza che nessuno la guardi, e continuare a interrogarla consuma inutilmente
          la quota giornaliera di Apps Script (causa più probabile delle disconnessioni casuali) */
@@ -2469,7 +2474,7 @@ function ensurePoll() {
         await pollOnce();
         pollRunning = false;
       }
-      if (!pollTimer) break;
+      if (!pollTimer || gen !== pollGen) break;
       await new Promise((res) => setTimeout(res, POLL_MS));
     }
   })();

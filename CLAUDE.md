@@ -39,3 +39,4 @@ Memoria del progetto **Gestionale Impianti**: Claude legge questo file automatic
 ## Da ricordare
 
 <!-- Aggiungi qui fatti, note e cose da non dimenticare. -->
+- 2026-10-17: controllo automatico — uscendo e rientrando entro 30 secondi si accumulavano cicli di aggiornamento doppi (richieste in più al backend); ora ogni ciclo ha un numero e il vecchio si ferma da solo.
