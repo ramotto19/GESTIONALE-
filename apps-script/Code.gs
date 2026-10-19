@@ -76,6 +76,7 @@ function handle(body) {
     case 'upload': return apiUpload(body, caller, role);
     case 'deleteFile': return apiDeleteFile(body, caller, role);
     case 'archiveFile': return apiArchiveFile(body, caller, role);
+    case 'resolveFolder': return apiResolveFolder(body, caller, role);
     default: return { ok: false, error: 'Azione sconosciuta: ' + body.action };
   }
 }
@@ -172,16 +173,36 @@ function apiDelete(body, caller, role) {
 /* risolve (creando se serve) la cartella annidata dentro quella radice che corrisponde a
    pagina/commessa/sezione, cosi' i documenti caricati da Apps Script finiscono nella stessa
    struttura di cartelle di quelli caricati direttamente dal browser, invece che tutti insieme
-   in un'unica cartella piatta */
+   in un'unica cartella piatta.
+   Tutta la funzione gira dentro lo stesso lucchetto (withLock) usato per i salvataggi dei
+   dati: senza, due caricamenti quasi contemporanei nella stessa sottocartella NON ANCORA
+   creata (due schede aperte, due persone, o il tentativo diretto dal browser e quello di
+   riserva via Apps Script in corsa fra loro) potevano trovarla entrambi assente e crearla
+   due volte — la stessa corsa già risolta per la cartella radice (vedi whoami/driveFolderId
+   in handle()), ma qui capitava per ogni sottocartella (bug reale, segnalato il 2026-10-19:
+   cartelle doppie dentro gli allegati). */
 function ensureFolderPath(rootFolder, segments) {
-  var folder = rootFolder;
-  (segments || []).slice(0, 6).forEach(function (name) {
-    name = String(name || '').trim().slice(0, 100);
-    if (!name) return;
-    var it = folder.getFoldersByName(name);
-    folder = it.hasNext() ? it.next() : folder.createFolder(name);
+  return withLock(function () {
+    var folder = rootFolder;
+    (segments || []).slice(0, 6).forEach(function (name) {
+      name = String(name || '').trim().slice(0, 100);
+      if (!name) return;
+      var it = folder.getFoldersByName(name);
+      folder = it.hasNext() ? it.next() : folder.createFolder(name);
+    });
+    return folder;
   });
-  return folder;
+}
+/* permette al browser di risolvere (creandola se serve) una sottocartella SENZA passare dal
+   caricamento: così anche il caricamento diretto su Drive (più veloce, usato quando c'è già
+   un token Drive valido) ottiene l'id della cartella da qui invece di cercarla e crearla da
+   sé — che era proprio la ricerca-poi-crea non protetta da nessun lucchetto, e quindi la
+   causa delle cartelle doppie quando due caricamenti partivano quasi insieme. */
+function apiResolveFolder(body, caller, role) {
+  var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
+  if (!folderId) return { ok: false, error: 'Cartella allegati non configurata: esegui setup().' };
+  var folder = ensureFolderPath(DriveApp.getFolderById(folderId), body.folderPath);
+  return { ok: true, folderId: folder.getId() };
 }
 function apiUpload(body, caller, role) {
   var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
@@ -532,6 +553,69 @@ function migraCartelleEsegui(dryRun) {
   Logger.log((dryRun ? '[ANTEPRIMA, nessun file è stato spostato] ' : '[FATTO] ') + 'File ' + (dryRun ? 'da spostare' : 'spostati') + ': ' + daSpostare + ' · non dentro a nessuna cartella "Allegati" (già organizzati in precedenza, oppure link a file altrove su Drive — non toccati): ' + nonInRadice + ' · non trovati (eliminati o senza permesso): ' + nonTrovati + (errori ? ' · errori: ' + errori : ''));
   Logger.log('Cartelle coinvolte:\n' + Object.keys(cartelleUsate).sort().map(function (k) { return '  ' + k + ' (' + cartelleUsate[k] + ')'; }).join('\n'));
   return { daSpostare: daSpostare, nonInRadice: nonInRadice, nonTrovati: nonTrovati, errori: errori };
+}
+
+/* ---------- una tantum: unisce le sottocartelle doppie (stesso nome, stesso genitore) ---------- */
+/* Prima che ensureFolderPath venisse protetta da un lucchetto (vedi sopra), due caricamenti
+   quasi contemporanei in una sottocartella non ancora creata (due schede aperte, due persone,
+   o il tentativo diretto dal browser e quello di riserva via Apps Script in corsa fra loro)
+   potevano crearne due con lo stesso nome, sotto lo stesso genitore (es. due cartelle
+   "Sicurezza" dentro la stessa commessa, o due cartelle con il nome di uno stesso dipendente).
+   Questa funzione le trova, a qualunque livello dentro "Gestionale Impianti — Allegati", e le
+   unisce: tiene la più vecchia, sposta dentro di lei tutti i file e le sottocartelle delle
+   altre con lo stesso nome, poi cestina quelle rimaste vuote (non c'è nulla da perdere: sono
+   vuote solo perché tutto il loro contenuto è stato spostato nella cartella tenuta).
+   Uso, dall'editor di Apps Script: esegui prima "unisciCartelleDoppieAnteprima" (▷) e guarda
+   il log (Visualizza → Log, o Ctrl+Cmd+H); se il numero ti convince, esegui
+   "unisciCartelleDoppie" per farlo davvero. */
+function unisciCartelleDoppieAnteprima() { return unisciCartelleDoppieEsegui(true); }
+function unisciCartelleDoppie() { return unisciCartelleDoppieEsegui(false); }
+function unisciCartelleDoppieEsegui(dryRun) {
+  var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
+  if (!folderId) { Logger.log('Cartella allegati non configurata: esegui prima setup().'); return; }
+  var root = DriveApp.getFolderById(folderId);
+  var gruppi = [], fileSpostati = 0, cartelleCestinate = 0, errori = 0;
+
+  var elabora = function (folder, path) {
+    var perNome = {};
+    var sub = folder.getFolders();
+    while (sub.hasNext()) {
+      var f = sub.next(), nome = f.getName();
+      (perNome[nome] = perNome[nome] || []).push(f);
+    }
+    Object.keys(perNome).forEach(function (nome) {
+      var lista = perNome[nome];
+      lista.sort(function (a, b) { return a.getDateCreated().getTime() - b.getDateCreated().getTime(); });
+      var tieni = lista[0];
+      if (lista.length > 1) {
+        gruppi.push((path ? path + ' / ' : '') + nome + ' (' + lista.length + ' cartelle)');
+        lista.slice(1).forEach(function (d) {
+          if (!dryRun) {
+            try {
+              var fileDaSpostare = [];
+              var fileIt = d.getFiles();
+              while (fileIt.hasNext()) fileDaSpostare.push(fileIt.next());
+              fileDaSpostare.forEach(function (fl) { tieni.addFile(fl); d.removeFile(fl); fileSpostati++; });
+
+              var subDaSpostare = [];
+              var subIt = d.getFolders();
+              while (subIt.hasNext()) subDaSpostare.push(subIt.next());
+              subDaSpostare.forEach(function (sf) { tieni.addFolder(sf); d.removeFolder(sf); });
+
+              d.setTrashed(true);
+              cartelleCestinate++;
+            } catch (e) { errori++; }
+          }
+        });
+      }
+      elabora(tieni, (path ? path + ' / ' : '') + nome);
+    });
+  };
+  elabora(root, '');
+
+  Logger.log((dryRun ? '[ANTEPRIMA, nessuna modifica] ' : '[FATTO] ') + 'Gruppi di cartelle doppie trovati: ' + gruppi.length + (dryRun ? '' : ' · file spostati: ' + fileSpostati + ' · cartelle vuote cestinate: ' + cartelleCestinate + (errori ? ' · errori: ' + errori : '')));
+  if (gruppi.length) Logger.log('Cartelle coinvolte:\n' + gruppi.map(function (g) { return '  ' + g; }).join('\n'));
+  return { gruppi: gruppi.length, fileSpostati: fileSpostati, cartelleCestinate: cartelleCestinate, errori: errori };
 }
 
 /* ---------- trova (senza eliminare nulla) i file rimasti nelle cartelle "Allegati" che non

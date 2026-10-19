@@ -2644,36 +2644,28 @@ async function driveEnsureFolder(token) {
   })();
   try { return await driveRootFolderPromise; } catch (e) { driveRootFolderPromise = null; throw e; }
 }
-async function driveEnsureChildFolder(token, parentId, name) {
-  const q = "name='" + name.replace(/'/g, "\\'") + "' and '" + parentId + "' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false";
-  const res = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&fields=files(id)&spaces=drive');
-  const data = await res.json();
-  if (data.files && data.files[0]) return data.files[0].id;
-  const created = await driveFetch(token, 'https://www.googleapis.com/drive/v3/files?fields=id', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] })
-  });
-  const c = await created.json();
-  return c.id;
-}
 /* risolve (creando se serve) la cartella annidata dentro "Gestionale Impianti - Allegati" che
    corrisponde a pagina/commessa/sezione (es. ['Commesse', 'ABC123 · Mario Rossi', 'Sicurezza']):
    così i documenti non finiscono più tutti mescolati in un'unica cartella piatta. Le cartelle
    già risolte in questa sessione restano in cache, per non rifare le stesse chiamate ad ogni
    caricamento (e per non lasciare una cache "rotta" se una chiamata fallisce, l'entry viene
-   tolta e il prossimo caricamento riprova). */
+   tolta e il prossimo caricamento riprova).
+   La risoluzione vera e propria passa SEMPRE dal backend (azione "resolveFolder"), che la fa
+   dentro lo stesso lucchetto dei salvataggi dati: prima ogni sottocartella veniva cercata e
+   creata direttamente da qui, senza alcuna protezione — due caricamenti quasi contemporanei
+   nella stessa sottocartella non ancora creata (due schede, due persone, o il tentativo
+   diretto e quello di riserva via Apps Script in corsa fra loro) potevano trovarla entrambi
+   assente e crearla due volte. Costa un giro di rete in più alla prima volta che si usa un
+   percorso (poi resta in cache per il resto della sessione), ma elimina la corsa alla radice. */
 const driveFolderCache = new Map();
 async function driveEnsureFolderPath(token, segments) {
   const clean = (segments || []).map((s) => String(s || '').trim().slice(0, 100)).filter(Boolean).slice(0, 6);
+  if (!clean.length) return driveEnsureFolder(token);
   const cacheKey = clean.join('/');
   if (driveFolderCache.has(cacheKey)) {
     try { return await driveFolderCache.get(cacheKey); } catch (e) { driveFolderCache.delete(cacheKey); }
   }
-  const p = (async () => {
-    let id = await driveEnsureFolder(token);
-    for (const seg of clean) id = await driveEnsureChildFolder(token, id, seg);
-    return id;
-  })();
+  const p = api('resolveFolder', { folderPath: clean }).then((r) => r.folderId);
   driveFolderCache.set(cacheKey, p);
   try { return await p; } catch (e) { driveFolderCache.delete(cacheKey); throw e; }
 }
