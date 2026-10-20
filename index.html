@@ -2656,7 +2656,11 @@ async function driveEnsureFolder(token) {
    nella stessa sottocartella non ancora creata (due schede, due persone, o il tentativo
    diretto e quello di riserva via Apps Script in corsa fra loro) potevano trovarla entrambi
    assente e crearla due volte. Costa un giro di rete in più alla prima volta che si usa un
-   percorso (poi resta in cache per il resto della sessione), ma elimina la corsa alla radice. */
+   percorso (poi resta in cache per il resto della sessione), ma elimina la corsa alla radice.
+   Il parametro "token" (il token OAuth di Drive) qui non serve più: chi autorizza a creare la
+   cartella è l'account Google con cui si è fatto l'accesso al gestionale (l'idToken usato da
+   api()), non quello di Drive — resta nella firma solo per il caso senza percorso qui sotto,
+   che risolve solo la cartella radice e quello sì lo usa. */
 const driveFolderCache = new Map();
 async function driveEnsureFolderPath(token, segments) {
   const clean = (segments || []).map((s) => String(s || '').trim().slice(0, 100)).filter(Boolean).slice(0, 6);

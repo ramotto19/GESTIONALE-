@@ -174,37 +174,58 @@ function apiDelete(body, caller, role) {
    pagina/commessa/sezione, cosi' i documenti caricati da Apps Script finiscono nella stessa
    struttura di cartelle di quelli caricati direttamente dal browser, invece che tutti insieme
    in un'unica cartella piatta.
-   Tutta la funzione gira dentro lo stesso lucchetto (withLock) usato per i salvataggi dei
-   dati: senza, due caricamenti quasi contemporanei nella stessa sottocartella NON ANCORA
-   creata (due schede aperte, due persone, o il tentativo diretto dal browser e quello di
-   riserva via Apps Script in corsa fra loro) potevano trovarla entrambi assente e crearla
-   due volte — la stessa corsa già risolta per la cartella radice (vedi whoami/driveFolderId
-   in handle()), ma qui capitava per ogni sottocartella (bug reale, segnalato il 2026-10-19:
-   cartelle doppie dentro gli allegati). */
+   Il lucchetto (withLock, lo stesso usato per i salvataggi dei dati) protegge SOLO il pezzo
+   di percorso che deve ancora essere creato: i livelli già esistenti si leggono prima, senza
+   lucchetto (leggere "esiste già?" è sempre sicuro, nessuna corsa possibile lì), così la
+   stragrande maggioranza dei caricamenti — che vanno in cartelle già create da tempo — non
+   aspetta mai il lucchetto e non rallenta gli altri salvataggi dell'app. Solo il PRIMO
+   caricamento che crea per davvero una cartella nuova entra nel lucchetto, e solo per quel
+   pezzo mancante. Senza nessuna protezione, due caricamenti quasi contemporanei nella stessa
+   sottocartella NON ANCORA creata (due schede, due persone, o il tentativo diretto dal
+   browser e quello di riserva via Apps Script in corsa fra loro) potevano trovarla entrambi
+   assente e crearla due volte — la stessa corsa già risolta per la cartella radice (vedi
+   whoami/driveFolderId in handle()), ma qui capitava per ogni sottocartella (bug reale,
+   segnalato il 2026-10-19: cartelle doppie dentro gli allegati). */
 function ensureFolderPath(rootFolder, segments) {
+  var clean = (segments || []).slice(0, 6);
+  var folder = rootFolder, mancaDa = -1;
+  for (var i = 0; i < clean.length; i++) {
+    var nome = String(clean[i] || '').trim().slice(0, 100);
+    if (!nome) continue;
+    var it = folder.getFoldersByName(nome);
+    if (it.hasNext()) { folder = it.next(); } else { mancaDa = i; break; }
+  }
+  if (mancaDa === -1) return folder;
   return withLock(function () {
-    var folder = rootFolder;
-    (segments || []).slice(0, 6).forEach(function (name) {
-      name = String(name || '').trim().slice(0, 100);
-      if (!name) return;
-      var it = folder.getFoldersByName(name);
-      folder = it.hasNext() ? it.next() : folder.createFolder(name);
-    });
-    return folder;
+    var f = folder;
+    for (var j = mancaDa; j < clean.length; j++) {
+      var nm = String(clean[j] || '').trim().slice(0, 100);
+      if (!nm) continue;
+      var it2 = f.getFoldersByName(nm);
+      f = it2.hasNext() ? it2.next() : f.createFolder(nm);
+    }
+    return f;
   });
 }
 /* permette al browser di risolvere (creandola se serve) una sottocartella SENZA passare dal
    caricamento: così anche il caricamento diretto su Drive (più veloce, usato quando c'è già
    un token Drive valido) ottiene l'id della cartella da qui invece di cercarla e crearla da
    sé — che era proprio la ricerca-poi-crea non protetta da nessun lucchetto, e quindi la
-   causa delle cartelle doppie quando due caricamenti partivano quasi insieme. */
+   causa delle cartelle doppie quando due caricamenti partivano quasi insieme.
+   Come apiUpload e apiArchiveFile: solo l'amministratore può crearle. Nell'app di oggi solo
+   l'amministratore carica allegati (i dipendenti vedono "I miei documenti" in sola lettura),
+   ma il controllo va comunque messo qui — non basta che l'interfaccia non mostri il
+   pulsante — perché chiunque abbia un token valido può altrimenti chiamare direttamente
+   questa azione. */
 function apiResolveFolder(body, caller, role) {
+  if (role !== 'admin') return { ok: false, error: 'Non hai i permessi per caricare allegati.' };
   var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
   if (!folderId) return { ok: false, error: 'Cartella allegati non configurata: esegui setup().' };
   var folder = ensureFolderPath(DriveApp.getFolderById(folderId), body.folderPath);
   return { ok: true, folderId: folder.getId() };
 }
 function apiUpload(body, caller, role) {
+  if (role !== 'admin') return { ok: false, error: 'Non hai i permessi per caricare allegati.' };
   var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
   if (!folderId) return { ok: false, error: 'Cartella allegati non configurata: esegui setup().' };
   var folder = ensureFolderPath(DriveApp.getFolderById(folderId), body.folderPath);
@@ -232,6 +253,7 @@ function apiDeleteFile(body, caller, role) {
    caricamento diretto dal browser non è disponibile. Non blocca mai nulla se fallisce (file già
    spostato, permessi…): è un riordino, non un'operazione essenziale. */
 function apiArchiveFile(body, caller, role) {
+  if (role !== 'admin') return { ok: false, error: 'Non hai i permessi per modificare gli allegati.' };
   try {
     var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
     if (!folderId) return { ok: false, error: 'Cartella allegati non configurata.' };
@@ -245,7 +267,12 @@ function apiArchiveFile(body, caller, role) {
     dest.addFile(file);
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: 'File non trovato o non spostabile.' };
+    /* il lucchetto occupato (ensureFolderPath, sopra) è un errore diverso da "file non
+       trovato": tenerli distinti permette di capire dai log se il problema è stato un
+       sovraccarico momentaneo oppure un file davvero sparito. Non cambia nulla per chi usa
+       l'app (questa pulizia di riserva fallisce in silenzio anche lato browser), serve solo
+       a non confondersi leggendo i log. */
+    return { ok: false, error: (e && /momentaneamente occupato/.test(e.message)) ? e.message : 'File non trovato o non spostabile.' };
   }
 }
 
