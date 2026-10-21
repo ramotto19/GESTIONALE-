@@ -39,3 +39,4 @@ Memoria del progetto **Gestionale Impianti**: Claude legge questo file automatic
 ## Da ricordare
 
 <!-- Aggiungi qui fatti, note e cose da non dimenticare. -->
+- 2026-10-21: controllo automatico — corretto un caso raro: uscendo dall'account mentre l'app stava aggiornando i dati, al login successivo potevano restare dati dell'account precedente e partire due cicli di aggiornamento insieme (ora il vecchio ciclo si ferma).

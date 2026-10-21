@@ -2428,10 +2428,10 @@ function applyLocalWrite(col, id, doc) {
    per un singolo intoppo di rete) viene mostrato un avviso, tolto al primo aggiornamento che torna a funzionare. */
 let pollFailStreak = 0;
 async function pollOnce() {
-  const seqBefore = writeSeq;
+  const seqBefore = writeSeq, genBefore = pollGen;
   try {
     const r = await api('listAll');
-    if (writeSeq !== seqBefore) return;
+    if (writeSeq !== seqBefore || genBefore !== pollGen) return;
     pollCache = r.cols || {};
     Object.keys(collListeners).forEach(dispatchCollection);
     if (pollFailStreak > 0 || S.syncTrouble) { pollFailStreak = 0; S.syncTrouble = false; queueRender(); }
@@ -2454,11 +2454,17 @@ async function pollOnce() {
    un timer fisso avrebbe accumulato richieste una sopra l'altra, intasando il backend. */
 let pollRunning = false;
 let skipFirstPoll = false;
+/* incrementato da stopPoll(): un giro di polling o un ciclo ancora in corso al momento del logout
+   si accorge di essere di una sessione precedente e non scrive più nulla né riparte (altrimenti,
+   al login successivo, ne girerebbero due insieme e la vecchia risposta rimetterebbe in cache
+   i dati dell'account di prima). */
+let pollGen = 0;
 function ensurePoll() {
   if (pollTimer) return;
   pollTimer = true;
+  const gen = pollGen;
   (async function loop() {
-    while (pollTimer) {
+    while (pollTimer && gen === pollGen) {
       /* con la scheda/app in background non si interroga il backend: su telefono può restare
          aperta per ore senza che nessuno la guardi, e continuare a interrogarla consuma inutilmente
          la quota giornaliera di Apps Script (causa più probabile delle disconnessioni casuali) */
@@ -2467,14 +2473,14 @@ function ensurePoll() {
       else {
         pollRunning = true;
         await pollOnce();
-        pollRunning = false;
+        if (gen === pollGen) pollRunning = false;
       }
-      if (!pollTimer) break;
+      if (!pollTimer || gen !== pollGen) break;
       await new Promise((res) => setTimeout(res, POLL_MS));
     }
   })();
 }
-function stopPoll() { pollTimer = null; pollRunning = false; skipFirstPoll = false; Object.keys(collListeners).forEach((k) => delete collListeners[k]); pollCache = null; }
+function stopPoll() { pollGen++; pollTimer = null; pollRunning = false; skipFirstPoll = false; Object.keys(collListeners).forEach((k) => delete collListeners[k]); pollCache = null; }
 /* tornando visibile, aggiorna subito invece di aspettare fino a POLL_MS; e controlla anche se il
    token va rinnovato — su telefono, dopo che l'app è stata in background a lungo, il rinnovo
    periodico può non essere scattato in tempo (i timer vengono messi in pausa in background) */
