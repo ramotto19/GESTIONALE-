@@ -40,3 +40,4 @@ Memoria del progetto **Gestionale Impianti**: Claude legge questo file automatic
 
 <!-- Aggiungi qui fatti, note e cose da non dimenticare. -->
 - 2026-10-21: controllo automatico — corretto un caso raro: uscendo dall'account mentre l'app stava aggiornando i dati, al login successivo potevano restare dati dell'account precedente e partire due cicli di aggiornamento insieme (ora il vecchio ciclo si ferma).
+- 2026-10-22: controllo automatico — corretto un caso raro: uscendo dall'account, il controllo delle proprie ore (registro ore) restava attivo in background e se ne accumulava uno in più a ogni accesso; ora si ferma all'uscita.

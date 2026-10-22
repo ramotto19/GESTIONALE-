@@ -2897,6 +2897,9 @@ window.__logout = () => {
      non deve restare leggibile da chi accede dopo di noi (chi accede con lo stesso account la
      ritrova comunque dopo il primo aggiornamento riuscito, come sempre). */
   if (S.uid) { try { localStorage.removeItem(BOOT_CACHE_PREFIX + S.uid); } catch (e) { /* ignora */ } }
+  /* ferma anche il controllo delle proprie ore (ciclo a parte, non agganciato a stopPoll): altrimenti restava attivo
+     per sempre dopo l'uscita, e al login successivo (anche con un altro account) ne girava uno in più per ogni accesso */
+  if (unMio) { try { unMio(); } catch (e) { /* ignora */ } unMio = null; }
   ID_TOKEN = null; WHOAMI_CACHE = null; stopPoll(); clearSavedToken(); clearSavedDriveToken();
   try { if (window.google && window.google.accounts && window.google.accounts.id) window.google.accounts.id.disableAutoSelect(); } catch (e) { /* ignora */ }
   S.route = 'dashboard'; S.id = null; S.tab = null; S.data = {}; S.loaded = {}; S.admin = false; S.me = ''; S.uid = null; S.unauthorized = false; S.pendingEmail = ''; S.offline = false; S.late = false; S.syncTrouble = false; pollFailStreak = 0;
