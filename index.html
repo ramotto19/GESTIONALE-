@@ -2526,9 +2526,13 @@ db = {
           while (!stopped) {
             try {
               const r = await api('get', { col: col, id: id });
+              /* se nel frattempo ci si è disiscritti (cambio mese, uscita dall'account) questa risposta è
+                 ormai di prima: non va consegnata, altrimenti sovrascriverebbe i dati del mese/account nuovo */
+              if (stopped) return;
               const key = JSON.stringify(r.doc || null);
               if (key !== last) { last = key; cb({ exists: !!r.found, data: () => r.doc }); }
-            } catch (e) { if (errCb) errCb(e); }
+            } catch (e) { if (errCb && !stopped) errCb(e); }
+            if (stopped) return;
             await new Promise((res) => setTimeout(res, POLL_MS));
           }
         })();
