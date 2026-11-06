@@ -2436,6 +2436,8 @@ async function pollOnce() {
     Object.keys(collListeners).forEach(dispatchCollection);
     if (pollFailStreak > 0 || S.syncTrouble) { pollFailStreak = 0; S.syncTrouble = false; queueRender(); }
   } catch (e) {
+    /* giro di una sessione già chiusa (logout): il suo errore non deve toccare la sessione nuova */
+    if (genBefore !== pollGen) return;
     /* un rifiuto vero (non un problema di rete/risposta momentaneo) durante il polling normale
        vuol dire quasi sempre token scaduto: senza reagire qui, l'app smette silenziosamente di
        aggiornarsi finché non si ricarica la pagina, ed è lì che si scopre di essere stati
