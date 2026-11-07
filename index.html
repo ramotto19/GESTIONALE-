@@ -2526,9 +2526,11 @@ db = {
           while (!stopped) {
             try {
               const r = await api('get', { col: col, id: id });
+              /* se nel frattempo il controllo è stato fermato (cambio mese, uscita dall'account), la risposta è ormai vecchia: non va applicata */
+              if (stopped) return;
               const key = JSON.stringify(r.doc || null);
               if (key !== last) { last = key; cb({ exists: !!r.found, data: () => r.doc }); }
-            } catch (e) { if (errCb) errCb(e); }
+            } catch (e) { if (errCb && !stopped) errCb(e); }
             await new Promise((res) => setTimeout(res, POLL_MS));
           }
         })();
