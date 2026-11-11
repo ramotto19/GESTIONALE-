@@ -3019,7 +3019,8 @@ function subscribe(col) {
     const m = {};
     snap.docs.forEach((d) => { m[d.id] = Object.assign({}, d.data(), { id: d.id }); });
     S.data[col] = m; S.loaded[col] = true; if (col === 'impostazioni') applyConfig(); queueRender();
-    if (['commesse', 'commesseElenco', 'clienti', 'assegnazioni', 'assegnazioniG', 'squadre', 'accessi'].includes(col)) maybeSync();
+    /* 'dipendenti' serve anche lui: runSync copia nella scheda accessi di ogni dipendente la sua formazione, i suoi documenti e i nomi nel planning — senza, una modifica fatta lì non arrivava alla sua pagina finché non cambiava qualcos'altro */
+    if (['commesse', 'commesseElenco', 'clienti', 'assegnazioni', 'assegnazioniG', 'squadre', 'accessi', 'dipendenti'].includes(col)) maybeSync();
     if (col === 'accessi') { resolveProf(); if (S.route === 'ore' && !S.oreLoading) loadAllOre(S.mese || meseOggi(), true); }
     if (col === 'categorie' || col === 'impostazioni') seedCategorieDefault();
     if (col === 'tipiLavoro' || col === 'impostazioni' || col === 'commesse') seedTipiLavoroDefault();
